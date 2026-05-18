@@ -69,6 +69,7 @@ class ProviderConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
+    api_key: str = ""
     default_provider: str = ""
     rules: list[RoutingRule] = []
     providers: dict[str, dict[str, ProviderConfig]] = {}

@@ -1,5 +1,6 @@
 """Anthropic provider — translates between OpenAI and Anthropic formats."""
 
+import json
 import time
 import uuid
 
@@ -17,6 +18,63 @@ from llmrouter.provider.base import BaseProvider
 
 _ANTHROPIC_VERSION = "2023-06-01"
 _DEFAULT_MAX_TOKENS = 4096
+
+
+async def _consume_sse(resp) -> dict:
+    """Read SSE stream from an Anthropic response, aggregate into final JSON."""
+    message = None
+    stop_reason = None
+    stop_sequence = None
+    usage = {}
+    blocks: dict[int, dict] = {}
+    block_texts: dict[int, list[str]] = {}
+
+    async for line in resp.aiter_lines():
+        line = line.strip()
+        if not line or line.startswith("event:"):
+            continue
+        if line.startswith("data: "):
+            data = json.loads(line[6:])
+            evt = data.get("type")
+            if evt == "message_start":
+                message = data.get("message", {})
+            elif evt == "content_block_start":
+                idx = data.get("index", 0)
+                blocks[idx] = data.get("content_block", {})
+                block_texts.setdefault(idx, [])
+            elif evt == "content_block_delta":
+                idx = data.get("index", 0)
+                delta = data.get("delta", {})
+                if delta.get("type") == "text_delta":
+                    block_texts.setdefault(idx, []).append(delta.get("text", ""))
+            elif evt == "content_block_stop":
+                idx = data.get("index", 0)
+                if idx in blocks and idx in block_texts:
+                    blocks[idx]["text"] = "".join(block_texts[idx])
+            elif evt == "message_delta":
+                delta = data.get("delta", {})
+                stop_reason = delta.get("stop_reason", stop_reason)
+                stop_sequence = delta.get("stop_sequence", stop_sequence)
+                usage = data.get("usage", usage)
+
+    if message is None:
+        return {}
+
+    if stop_reason is not None:
+        message["stop_reason"] = stop_reason
+    if stop_sequence is not None:
+        message["stop_sequence"] = stop_sequence
+    if usage:
+        message["usage"] = usage
+
+    sorted_blocks = [blocks[i] for i in sorted(blocks)]
+    if any(not b.get("text") for b in sorted_blocks):
+        # fill in partial content from blocks
+        pass
+    if sorted_blocks:
+        message["content"] = sorted_blocks
+
+    return message
 
 
 def _to_anthropic_messages(
@@ -93,10 +151,28 @@ class AnthropicProvider(BaseProvider):
         )
 
     async def proxy_request(self, body: dict) -> dict:
-        """Forward a raw Anthropic-format request and return raw response."""
+        """Forward Anthropic-format request, return JSON dict.
+
+        Handles both JSON and SSE responses — if upstream returns SSE,
+        aggregates events into a single JSON dict internally.
+        """
         resp = await self._client.post("/v1/messages", json=body)
         resp.raise_for_status()
+        ct = resp.headers.get("content-type", "")
+        if "text/event-stream" in ct:
+            return await _consume_sse(resp)
         return resp.json()
+
+    async def proxy_request_stream(self, body: dict):
+        """Forward Anthropic-format request, yield SSE byte chunks."""
+        async with self._client.stream("POST", "/v1/messages", json=body) as resp:
+            resp.raise_for_status()
+            ct = resp.headers.get("content-type", "")
+            if "text/event-stream" not in ct:
+                yield b"data: " + (await resp.aread()) + b"\n\n"
+                return
+            async for chunk in resp.aiter_bytes():
+                yield chunk
 
     async def chat_completion(
         self, request: ChatCompletionRequest
