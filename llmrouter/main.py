@@ -121,6 +121,8 @@ async def anthropic_messages(request: Request):
                     provider_name, model,
                     usage.get("input_tokens", 0),
                     usage.get("output_tokens", 0),
+                    usage.get("cache_read_input_tokens", 0),
+                    usage.get("cache_creation_input_tokens", 0),
                 )
             return JSONResponse(content=resp)
         else:

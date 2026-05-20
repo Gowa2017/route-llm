@@ -21,6 +21,8 @@ class UsageTracker:
         model: str,
         input_tokens: int,
         output_tokens: int,
+        cache_read_tokens: int = 0,
+        cache_creation_tokens: int = 0,
     ):
         today = date.today().isoformat()
         path = self._base / f"{today}.jsonl"
@@ -29,6 +31,8 @@ class UsageTracker:
             "model": model,
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
+            "cache_read_tokens": cache_read_tokens,
+            "cache_creation_tokens": cache_creation_tokens,
             "timestamp": today,
         }
         with open(path, "a") as f:
@@ -43,7 +47,7 @@ class UsageTracker:
 
         from collections import defaultdict
 
-        agg: dict = defaultdict(lambda: {"calls": 0, "input_tokens": 0, "output_tokens": 0})
+        agg: dict = defaultdict(lambda: {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_creation_tokens": 0})
         with open(path) as f:
             for line in f:
                 line = line.strip()
@@ -54,6 +58,8 @@ class UsageTracker:
                 agg[key]["calls"] += 1
                 agg[key]["input_tokens"] += r["input_tokens"]
                 agg[key]["output_tokens"] += r["output_tokens"]
+                agg[key]["cache_read_tokens"] += r.get("cache_read_tokens", 0)
+                agg[key]["cache_creation_tokens"] += r.get("cache_creation_tokens", 0)
 
         return [
             {"provider_model": k, **v} for k, v in sorted(agg.items())

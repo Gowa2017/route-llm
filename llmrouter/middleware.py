@@ -80,5 +80,6 @@ class RoutingService:
             self._tracker.record(
                 provider_name, model,
                 resp.usage.prompt_tokens, resp.usage.completion_tokens,
+                resp.usage.cache_read_input_tokens, resp.usage.cache_creation_input_tokens,
             )
         return resp
