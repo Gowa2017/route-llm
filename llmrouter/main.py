@@ -105,6 +105,7 @@ async def anthropic_messages(request: Request):
     service: RoutingService = request.app.state.service
     try:
         provider_name, model, provider = service.route(body.get("model"))
+        _log.info("routed → provider=%s model=%s", provider_name, model)
         body["model"] = model
 
         if isinstance(provider, AnthropicProvider):
