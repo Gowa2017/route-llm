@@ -29,7 +29,6 @@ class RoutingService:
         if config is None:
             config = load_config()
         self._config = config
-        self._router = Router(config)
         self._providers: dict[str, BaseProvider] = {}
         self._tracker = tracker or UsageTracker()
 
@@ -43,6 +42,7 @@ class RoutingService:
                 else:
                     self._providers[key] = OpenAICompatProvider(pconfig)
 
+        self._router = Router(config, set(self._providers.keys()))
         self._log_loaded()
 
     def _log_loaded(self):

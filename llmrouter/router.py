@@ -30,8 +30,9 @@ def _in_time_range(start: str, end: str, now: time | None = None) -> bool:
 class Router:
     """Select the best provider+model for a request based on routing rules."""
 
-    def __init__(self, config: AppConfig):
+    def __init__(self, config: AppConfig, available_providers: set[str] | None = None):
         self.config = config
+        self.available_providers = available_providers
 
     def select(self, model_hint: str | None = None) -> tuple[str, str]:
         """Return (provider_name, model_name) for the current context.
@@ -57,6 +58,15 @@ class Router:
             candidates.append(rule)
 
         if not candidates:
+            # 按模型名在已加载的 providers 中查找
+            if model_hint:
+                for proto_type, vendors in self.config.providers.items():
+                    for vendor_name, pconfig in vendors.items():
+                        provider_key = f"{proto_type}.{vendor_name}"
+                        if self.available_providers and provider_key not in self.available_providers:
+                            continue
+                        if model_hint in pconfig.models:
+                            return provider_key, model_hint
             return self._fallback(model_hint)
 
         candidates.sort(key=lambda r: r.priority, reverse=True)
