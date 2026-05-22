@@ -30,51 +30,9 @@ max_tokens = 65536
 level = "large"
 max_tokens = 128000
 
-[providers.openai.dmxapi]
-api_key = "YOUR_API_KEY"
-base_url = "https://www.dmxapi.cn/v1"
-weight = 5
-
-[providers.openai.dmxapi.models."glm-5.1"]
-level = "large"
-max_tokens = 131072
-
-[providers.openai.dmxapi.models.deepseek-v4-flash]
-level = "small"
-max_tokens = 65536
-
-[providers.openai.dmxapi.models.deepseek-v4-pro]
-level = "large"
-max_tokens = 65536
-
-[providers.openai.dmxapi.models."MiniMax-M2.5"]
-level = "large"
-max_tokens = 65536
-
-[providers.openai.dmxapi.models."kimi-k2.5"]
-level = "large"
-max_tokens = 128000
-
 # ========= Anthropic 协议厂商 =========
 
 [providers.anthropic]
-[providers.anthropic.modelscope]
-api_key = "YOUR_API_KEY"
-base_url = "https://api-inference.modelscope.cn"
-weight = 5
-
-[providers.anthropic.modelscope.models."ZhipuAI/GLM-5.1"]
-level = "large"
-max_tokens = 131072
-
-[providers.anthropic.modelscope.models."deepseek-ai/DeepSeek-V4-Flash"]
-level = "small"
-max_tokens = 65536
-
-[providers.anthropic.modelscope.models."deepseek-ai/DeepSeek-V4-Pro"]
-level = "large"
-max_tokens = 65536
-
 [providers.anthropic.baidu]
 api_key = "YOUR_API_KEY"
 base_url = "https://qianfan.baidubce.com/anthropic/coding"
@@ -110,19 +68,6 @@ level = "small"
 max_tokens = 65536
 
 [providers.anthropic.xiaomi.models."mimo-v2.5-pro"]
-level = "large"
-max_tokens = 65536
-
-[providers.anthropic.chinadatapay]
-api_key = "YOUR_API_KEY"
-base_url = "https://tp-api.chinadatapay.com:8000/"
-weight = 4
-
-[providers.anthropic.chinadatapay.models.deepseek-v4-flash]
-level = "small"
-max_tokens = 65536
-
-[providers.anthropic.chinadatapay.models.deepseek-v4-pro]
 level = "large"
 max_tokens = 65536
 
@@ -170,31 +115,6 @@ time_range = { start = "14:00", end = "18:00" }
 match_model = "glm-5.1,glm-5-turbo"
 model = "glm-4.7"
 priority = 10
-
-[providers.anthropic.dmxapi]
-api_key = "YOUR_API_KEY"
-base_url = "https://www.dmxapi.cn"
-weight = 8
-
-[providers.anthropic.dmxapi.models."glm-5.1"]
-level = "large"
-max_tokens = 131072
-
-[providers.anthropic.dmxapi.models.deepseek-v4-flash]
-level = "small"
-max_tokens = 65536
-
-[providers.anthropic.dmxapi.models.deepseek-v4-pro]
-level = "large"
-max_tokens = 65536
-
-[providers.anthropic.dmxapi.models."MiniMax-M2.5"]
-level = "large"
-max_tokens = 65536
-
-[providers.anthropic.dmxapi.models."kimi-k2.5"]
-level = "large"
-max_tokens = 128000
 
 [providers.anthropic.minimax]
 api_key = "YOUR_API_KEY"
