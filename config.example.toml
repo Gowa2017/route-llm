@@ -1,16 +1,5 @@
 api_key = "YOUR_API_KEY"
 
-[routing]
-default_provider = "anthropic.zhipu"
-
-[[routing.rules]]
-name = "glm-redirect"
-time_range = { start = "14:00", end = "18:00" }
-provider = "anthropic.zhipu"
-match_model = "glm-5.1"
-model = "glm-4.7"
-priority = 10
-
 # ========= OpenAI 协议厂商 =========
 
 [providers]
@@ -19,6 +8,7 @@ priority = 10
 [providers.openai.siliconflow]
 api_key = "YOUR_API_KEY"
 base_url = "https://api.siliconflow.cn/v1"
+weight = 3
 
 [providers.openai.siliconflow.models."Pro/deepseek-ai/DeepSeek-V3"]
 level = "large"
@@ -43,6 +33,7 @@ max_tokens = 128000
 [providers.openai.dmxapi]
 api_key = "YOUR_API_KEY"
 base_url = "https://www.dmxapi.cn/v1"
+weight = 5
 
 [providers.openai.dmxapi.models."glm-5.1"]
 level = "large"
@@ -70,6 +61,7 @@ max_tokens = 128000
 [providers.anthropic.modelscope]
 api_key = "YOUR_API_KEY"
 base_url = "https://api-inference.modelscope.cn"
+weight = 5
 
 [providers.anthropic.modelscope.models."ZhipuAI/GLM-5.1"]
 level = "large"
@@ -86,6 +78,7 @@ max_tokens = 65536
 [providers.anthropic.baidu]
 api_key = "YOUR_API_KEY"
 base_url = "https://qianfan.baidubce.com/anthropic/coding"
+weight = 7
 
 [providers.anthropic.baidu.models."glm-5.1"]
 level = "large"
@@ -110,6 +103,7 @@ max_tokens = 128000
 [providers.anthropic.xiaomi]
 api_key = "YOUR_API_KEY"
 base_url = "https://token-plan-cn.xiaomimimo.com/anthropic"
+weight = 3
 
 [providers.anthropic.xiaomi.models."mimo-v2.5"]
 level = "small"
@@ -122,6 +116,7 @@ max_tokens = 65536
 [providers.anthropic.chinadatapay]
 api_key = "YOUR_API_KEY"
 base_url = "https://tp-api.chinadatapay.com:8000/"
+weight = 4
 
 [providers.anthropic.chinadatapay.models.deepseek-v4-flash]
 level = "small"
@@ -134,6 +129,7 @@ max_tokens = 65536
 [providers.anthropic.deepseek]
 api_key = "YOUR_API_KEY"
 base_url = "https://api.deepseek.com/anthropic"
+weight = 6
 
 [providers.anthropic.deepseek.models.deepseek-v4-flash]
 level = "small"
@@ -146,6 +142,7 @@ max_tokens = 65536
 [providers.anthropic.zhipu]
 api_key = "YOUR_API_KEY"
 base_url = "https://open.bigmodel.cn/api/anthropic"
+weight = 10
 
 [providers.anthropic.zhipu.models."glm-4.7"]
 level = "large"
@@ -167,9 +164,17 @@ max_tokens = 8192
 level = "large"
 max_tokens = 131072
 
+[[providers.anthropic.zhipu.rules]]
+name = "glm-redirect"
+time_range = { start = "14:00", end = "18:00" }
+match_model = "glm-5.1,glm-5-turbo"
+model = "glm-4.7"
+priority = 10
+
 [providers.anthropic.dmxapi]
 api_key = "YOUR_API_KEY"
 base_url = "https://www.dmxapi.cn"
+weight = 8
 
 [providers.anthropic.dmxapi.models."glm-5.1"]
 level = "large"
@@ -194,6 +199,7 @@ max_tokens = 128000
 [providers.anthropic.minimax]
 api_key = "YOUR_API_KEY"
 base_url = "https://api.minimaxi.com/anthropic"
+weight = 3
 
 [providers.anthropic.minimax.models."MiniMax-M2.5"]
 level = "large"
@@ -202,6 +208,7 @@ max_tokens = 65536
 [providers.anthropic.kimi]
 api_key = "YOUR_API_KEY"
 base_url = "https://api.kimi.com/coding"
+weight = 3
 
 [providers.anthropic.kimi.models."kimi-k2.5"]
 level = "large"

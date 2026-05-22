@@ -9,16 +9,6 @@ from llmrouter.config import _apply_env_overrides, load_config
 from llmrouter.models import AppConfig
 
 SAMPLE_TOML = """
-[routing]
-default_provider = "openai.deepseek"
-
-[[routing.rules]]
-name = "daytime"
-time_range = { start = "08:00", end = "23:00" }
-provider = "openai.deepseek"
-model = "deepseek-chat"
-priority = 10
-
 [providers]
 [providers.openai]
 [providers.openai.deepseek]
@@ -42,11 +32,6 @@ def test_load_config_from_path(tmp_path: Path):
     cfg = load_config(cfg_path)
 
     assert isinstance(cfg, AppConfig)
-    assert cfg.default_provider == "openai.deepseek"
-    assert len(cfg.rules) == 1
-    assert cfg.rules[0].name == "daytime"
-    assert cfg.rules[0].provider == "openai.deepseek"
-    assert cfg.rules[0].model == "deepseek-chat"
     assert len(cfg.providers) == 2
     assert "deepseek" in cfg.providers["openai"]
     assert "openai_vendor" in cfg.providers["openai"]
@@ -56,7 +41,6 @@ def test_load_config_from_path(tmp_path: Path):
 
 def test_env_override_api_key(monkeypatch):
     raw = {
-        "routing": {"default_provider": "openai.deepseek"},
         "providers": {
             "openai": {
                 "deepseek": {"api_key": "sk-old", "base_url": "https://api.deepseek.com"}
@@ -70,7 +54,6 @@ def test_env_override_api_key(monkeypatch):
 
 def test_env_override_base_url(monkeypatch):
     raw = {
-        "routing": {"default_provider": "openai.deepseek"},
         "providers": {
             "openai": {
                 "deepseek": {"api_key": "sk-test", "base_url": "https://old.example.com"}
@@ -108,16 +91,20 @@ def test_env_override_unknown_type_noop(monkeypatch):
     assert result["providers"]["openai"]["deepseek"]["api_key"] == "sk-test"
 
 
-def test_routing_rule_without_time_range():
+def test_provider_rule_without_time_range():
     toml = """
-[[routing.rules]]
+[providers.openai.deepseek]
+api_key = "sk-test"
+base_url = "https://api.deepseek.com"
+
+[[providers.openai.deepseek.rules]]
 name = "always"
-provider = "openai.deepseek"
 model = "deepseek-chat"
 priority = 5
 """
     raw = tomllib.loads(toml)
-    raw.update(raw.pop("routing", {}))
     cfg = AppConfig(**raw)
-    assert len(cfg.rules) == 1
-    assert cfg.rules[0].time_range is None
+    rule = cfg.providers["openai"]["deepseek"].rules[0]
+    assert rule.name == "always"
+    assert rule.time_range is None
+    assert rule.model == "deepseek-chat"

@@ -103,18 +103,57 @@ async def anthropic_messages(request: Request):
 
     _log.info("anthropic_messages body model=%s stream=%s", body.get("model"), body.get("stream"))
     service: RoutingService = request.app.state.service
+    stream = body.get("stream", False)
     try:
-        provider_name, model, provider = service.route(body.get("model"))
-        _log.info("routed → provider=%s model=%s", provider_name, model)
-        body["model"] = model
+        # Streaming → 单次路由, 不支持重试 (已开始响应)
+        if stream:
+            provider_name, model, provider = service.route(body.get("model"))
+            _log.info("routed → provider=%s model=%s", provider_name, model)
+            body["model"] = model
 
-        if isinstance(provider, AnthropicProvider):
-            if body.get("stream"):
+            if isinstance(provider, AnthropicProvider):
                 return StreamingResponse(
                     provider.proxy_request_stream(body),
                     media_type="text/event-stream",
                 )
-            resp = await provider.proxy_request(body)
+            raise HTTPException(
+                status_code=501,
+                detail=f"Anthropic→{type(provider).__name__} routing not supported",
+            )
+
+        # 非流式 → 带自动故障转移
+        exclude: set[str] = set()
+        last_error: Exception | None = None
+
+        for _attempt in range(3):
+            provider_name, model = service._router.select(body.get("model"), exclude)
+            _log.info("routed → provider=%s model=%s", provider_name, model)
+            provider = service._providers.get(provider_name)
+            if not provider:
+                raise ValueError(f"Unknown provider: {provider_name}")
+            if not isinstance(provider, AnthropicProvider):
+                raise HTTPException(
+                    status_code=501,
+                    detail=f"Anthropic→{type(provider).__name__} routing not supported",
+                )
+
+            body["model"] = model
+            try:
+                resp = await provider.proxy_request(body)
+            except httpx.HTTPStatusError as e:
+                last_error = e
+                detail = e.response.text or str(e)
+                if e.response.status_code in {429, 500, 502, 503}:
+                    _log.warning(
+                        "Provider %s %s failed (HTTP %d), retrying…",
+                        provider_name, model, e.response.status_code,
+                    )
+                    service._router.failure_tracker.mark(provider_name)
+                    exclude.add(provider_name)
+                    continue
+                _log.error("anthropic_messages HTTPStatusError: %s", detail)
+                raise HTTPException(status_code=e.response.status_code, detail=detail) from e
+
             usage = resp.get("usage", {})
             if usage:
                 service._tracker.record(
@@ -125,11 +164,9 @@ async def anthropic_messages(request: Request):
                     usage.get("cache_creation_input_tokens", 0),
                 )
             return JSONResponse(content=resp)
-        else:
-            raise HTTPException(
-                status_code=501,
-                detail=f"Anthropic→{type(provider).__name__} routing not supported",
-            )
+
+        # 所有重试用尽
+        raise last_error or RuntimeError("All providers exhausted")
     except ValueError as e:
         _log.error("anthropic_messages ValueError: %s", e)
         raise HTTPException(status_code=400, detail=str(e))

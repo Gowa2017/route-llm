@@ -53,7 +53,7 @@ class TimeRange(BaseModel):
 class RoutingRule(BaseModel):
     name: str
     time_range: TimeRange | None = None
-    provider: str
+    provider: str | None = None   # None = 同厂商重定向, 有值 = 跨厂商路由
     match_model: str | None = None  # incoming model to match
     model: str | None = None        # override target model
     priority: int = 0
@@ -67,11 +67,11 @@ class ModelConfig(BaseModel):
 class ProviderConfig(BaseModel):
     api_key: str
     base_url: str
+    weight: int = 1
     models: dict[str, ModelConfig] = {}
+    rules: list[RoutingRule] = []
 
 
 class AppConfig(BaseModel):
     api_key: str = ""
-    default_provider: str = ""
-    rules: list[RoutingRule] = []
     providers: dict[str, dict[str, ProviderConfig]] = {}

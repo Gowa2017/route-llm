@@ -1,17 +1,18 @@
-"""Routing engine — matches requests to providers based on rules."""
+"""Routing engine — weighted provider selection with per-provider rules."""
 
-from datetime import datetime, time
+import time
+from datetime import datetime, time as time_type
 
-from llmrouter.models import AppConfig, RoutingRule
+from llmrouter.models import AppConfig, ProviderConfig, RoutingRule
 
 
-def _parse_time(t_str: str) -> time:
+def _parse_time(t_str: str) -> time_type:
     """Parse 'HH:MM' string to time object."""
     parts = t_str.split(":")
-    return time(int(parts[0]), int(parts[1]) if len(parts) > 1 else 0)
+    return time_type(int(parts[0]), int(parts[1]) if len(parts) > 1 else 0)
 
 
-def _in_time_range(start: str, end: str, now: time | None = None) -> bool:
+def _in_time_range(start: str, end: str, now: time_type | None = None) -> bool:
     """Check if *now* falls within [start, end].
 
     Supports cross-day ranges: start > end means the range crosses midnight.
@@ -23,30 +24,114 @@ def _in_time_range(start: str, end: str, now: time | None = None) -> bool:
 
     if start_t <= end_t:
         return start_t <= now <= end_t
-    # Cross-day: e.g. 23:00-08:00
     return now >= start_t or now <= end_t
 
 
+class FailureTracker:
+    """In-memory failure cooldown tracker.
+
+    Providers marked as failed are blocked for *cooldown* seconds (default 30 min).
+    Cleanup is lazy — entries expire on the next ``is_blocked()`` check.
+    """
+
+    def __init__(self, cooldown: int = 1800):
+        self._cooldown = cooldown
+        self._failures: dict[str, float] = {}
+
+    def mark(self, provider: str):
+        self._failures[provider] = time.time()
+
+    def is_blocked(self, provider: str) -> bool:
+        ts = self._failures.get(provider)
+        if ts is None:
+            return False
+        if time.time() - ts >= self._cooldown:
+            del self._failures[provider]
+            return False
+        return True
+
+    def clear(self):
+        self._failures.clear()
+
+    @property
+    def failed_providers(self) -> set[str]:
+        return set(self._failures.keys())
+
+
 class Router:
-    """Select the best provider+model for a request based on routing rules."""
+    """Select provider by weight, then apply provider-level rules.
+
+    Flow
+    ----
+    1. Find candidate providers that have the requested model.
+    2. Pick the highest-weight candidate (skip blocked / excluded).
+    3. Apply the provider's rules — model override or cross-provider redirect.
+    """
 
     def __init__(self, config: AppConfig, available_providers: set[str] | None = None):
         self.config = config
         self.available_providers = available_providers
+        self.failure_tracker = FailureTracker()
 
-    def select(self, model_hint: str | None = None) -> tuple[str, str]:
-        """Return (provider_name, model_name) for the current context.
-
-        1. Filter rules by current time.
-        2. If *match_model* is set, rule only matches if request.model == match_model.
-        3. Among remaining, pick highest-priority rule.
-        4. If rule has *model*, use it as override; otherwise keep original model_hint.
-        5. If no rule matches, fall back to default provider.
-        """
+    def select(self, model_hint: str | None = None,
+               exclude_providers: set[str] | None = None) -> tuple[str, str]:
+        """Return (provider_name, model_name) for the current context."""
+        exclude = exclude_providers or set()
         now = datetime.now().time()
-        candidates: list[RoutingRule] = []
 
-        for rule in self.config.rules:
+        candidates = self._find_candidates(model_hint, exclude)
+        if not candidates:
+            return "", model_hint or ""
+
+        provider_key = self._pick_by_weight(candidates)
+        proto, vendor = provider_key.split(".", 1)
+        pconfig = self.config.providers[proto][vendor]
+
+        # Check provider-level rules
+        matched = self._match_rules(pconfig.rules, model_hint, now)
+        if matched:
+            best = matched[0]
+            resolved_model = best.model or model_hint or ""
+            if best.provider:
+                return best.provider, resolved_model
+            return provider_key, resolved_model
+
+        # No rule matched — use original model
+        return provider_key, model_hint or ""
+
+    # ── internals ──
+
+    def _find_candidates(
+        self, model_hint: str | None, exclude: set[str],
+    ) -> list[tuple[str, ProviderConfig]]:
+        """Return (provider_key, config) pairs that can serve *model_hint*."""
+        candidates: list[tuple[str, ProviderConfig]] = []
+
+        for proto_type, vendors in self.config.providers.items():
+            for vendor_name, pconfig in vendors.items():
+                key = f"{proto_type}.{vendor_name}"
+                if key in exclude:
+                    continue
+                if self.available_providers and key not in self.available_providers:
+                    continue
+                if self.failure_tracker.is_blocked(key):
+                    continue
+                if model_hint and model_hint not in pconfig.models:
+                    continue
+                candidates.append((key, pconfig))
+
+        return candidates
+
+    def _pick_by_weight(self, candidates: list[tuple[str, ProviderConfig]]) -> str:
+        """Pick provider with highest weight (stable sort for ties)."""
+        candidates.sort(key=lambda t: t[1].weight, reverse=True)
+        return candidates[0][0]
+
+    def _match_rules(self, rules: list[RoutingRule], model_hint: str | None,
+                     now: time_type) -> list[RoutingRule]:
+        """Filter and sort rules by time/match_model, return highest-priority first."""
+        matched: list[RoutingRule] = []
+        for rule in rules:
             if rule.time_range and not _in_time_range(
                 rule.time_range.start, rule.time_range.end, now
             ):
@@ -55,28 +140,7 @@ class Router:
                 models = [m.strip() for m in rule.match_model.split(",")]
                 if model_hint not in models:
                     continue
-            candidates.append(rule)
+            matched.append(rule)
 
-        if not candidates:
-            # 按模型名在已加载的 providers 中查找
-            if model_hint:
-                for proto_type, vendors in self.config.providers.items():
-                    for vendor_name, pconfig in vendors.items():
-                        provider_key = f"{proto_type}.{vendor_name}"
-                        if self.available_providers and provider_key not in self.available_providers:
-                            continue
-                        if model_hint in pconfig.models:
-                            return provider_key, model_hint
-            return self._fallback(model_hint)
-
-        candidates.sort(key=lambda r: r.priority, reverse=True)
-        best = candidates[0]
-        resolved_model = best.model or model_hint or ""
-        return best.provider, resolved_model
-
-    def _fallback(self, model_hint: str | None = None) -> tuple[str, str]:
-        """Fallback to default provider or first available."""
-        provider = self.config.default_provider or next(
-            iter(self.config.providers), ""
-        )
-        return provider, model_hint or ""
+        matched.sort(key=lambda r: r.priority, reverse=True)
+        return matched

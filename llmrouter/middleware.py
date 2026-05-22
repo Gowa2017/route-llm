@@ -2,6 +2,8 @@
 
 import logging
 
+import httpx
+
 from llmrouter.config import load_config
 from llmrouter.models import AppConfig, ChatCompletionRequest, ChatCompletionResponse
 from llmrouter.provider.anthropic import AnthropicProvider
@@ -10,11 +12,15 @@ from llmrouter.provider.openai_compat import OpenAICompatProvider
 from llmrouter.router import Router
 from llmrouter.tracker import UsageTracker
 
+_log = logging.getLogger("llmrouter")
+
+_RETRYABLE_STATUSES = {429, 500, 502, 503}
+_MAX_RETRIES = 3
+
 _PLACEHOLDER_PREFIXES = ("sk-your-", "sk-ant-your-")
 
 
 def _key_configured(api_key: str) -> bool:
-    """Check if api_key is actually set (not empty or placeholder)."""
     if not api_key:
         return False
     if api_key.startswith(_PLACEHOLDER_PREFIXES):
@@ -61,25 +67,61 @@ class RoutingService:
         return list(cfg.models.keys()) if cfg and cfg.models else []
 
     def route(self, model_hint: str | None = None) -> tuple[str, str, BaseProvider]:
-        """Route a model_hint to (provider_name, resolved_model, provider)."""
+        """Single-shot route (no retry)."""
         provider_name, model = self._router.select(model_hint)
         provider = self._providers.get(provider_name)
         if not provider:
             raise ValueError(f"Unknown provider: {provider_name}")
         return provider_name, model, provider
 
-    async def chat_completion(
-        self, body: dict
-    ) -> ChatCompletionResponse:
-        """Route a chat completion request and return the upstream response."""
+    async def _call_with_fallback(self, model_hint: str | None, call_fn):
+        """Route then call, retrying fallback providers on HTTP 429/5xx.
+
+        Failed providers are added to the failure tracker so subsequent
+        requests skip them for the cooldown period (default 30 min).
+        """
+        exclude: set[str] = set()
+        last_error: Exception | None = None
+
+        for attempt in range(_MAX_RETRIES):
+            provider_name, model = self._router.select(model_hint, exclude)
+            provider = self._providers.get(provider_name)
+            if not provider:
+                raise ValueError(f"Unknown provider: {provider_name}")
+
+            try:
+                return await call_fn(provider, provider_name, model)
+            except httpx.HTTPStatusError as e:
+                last_error = e
+                if e.response.status_code in _RETRYABLE_STATUSES:
+                    _log.warning(
+                        "Provider %s %s failed (HTTP %d), retrying…",
+                        provider_name, model, e.response.status_code,
+                    )
+                    self._router.failure_tracker.mark(provider_name)
+                    exclude.add(provider_name)
+                    continue
+                raise
+
+        raise last_error or RuntimeError("All providers exhausted")
+
+    async def chat_completion(self, body: dict) -> ChatCompletionResponse:
+        """Route a chat completion request and return the upstream response.
+
+        Automatically retries with fallback providers on HTTP 429/5xx.
+        """
         request = ChatCompletionRequest(**body)
-        provider_name, model, provider = self.route(request.model)
-        request.model = model
-        resp = await provider.chat_completion(request)
-        if resp.usage:
-            self._tracker.record(
-                provider_name, model,
-                resp.usage.prompt_tokens, resp.usage.completion_tokens,
-                resp.usage.cache_read_input_tokens, resp.usage.cache_creation_input_tokens,
-            )
-        return resp
+        model_hint = request.model
+
+        async def _call(provider, provider_name, model):
+            request.model = model
+            resp = await provider.chat_completion(request)
+            if resp.usage:
+                self._tracker.record(
+                    provider_name, model,
+                    resp.usage.prompt_tokens, resp.usage.completion_tokens,
+                    resp.usage.cache_read_input_tokens, resp.usage.cache_creation_input_tokens,
+                )
+            return resp
+
+        return await self._call_with_fallback(model_hint, _call)
