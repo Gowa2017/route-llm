@@ -79,6 +79,16 @@ class Router:
         exclude = exclude_providers or set()
         now = datetime.now().time()
 
+        # Explicit provider.model — bind directly, skip routing
+        if model_hint and "." in model_hint:
+            explicit_provider, explicit_model = model_hint.split(".", 1)
+            for proto_type, vendors in self.config.providers.items():
+                for vendor_name, pconfig in vendors.items():
+                    key = f"{proto_type}.{vendor_name}"
+                    if vendor_name == explicit_provider and key not in exclude:
+                        if not self.failure_tracker.is_blocked(key):
+                            return key, explicit_model
+
         candidates = self._find_candidates(model_hint, exclude)
         if not candidates:
             return "", model_hint or ""

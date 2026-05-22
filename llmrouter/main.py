@@ -67,6 +67,28 @@ async def list_models(request: Request):
     }
 
 
+@app.get("/v1/usage")
+async def get_usage(
+    request: Request,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+):
+    """Return aggregated usage per provider+model.
+
+    Query params (all optional):
+      start_date  - ISO date (default: today)
+      end_date    - ISO date (default: today)
+      provider    - substring filter on provider name
+      model       - substring filter on model name
+    """
+    await _check_auth(request)
+    tracker: UsageTracker = request.app.state.tracker
+    result = tracker.query(start_date=start_date, end_date=end_date, provider=provider, model=model)
+    return {"usage": result}
+
+
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     await _check_auth(request)
@@ -92,6 +114,40 @@ async def chat_completions(request: Request):
         raise HTTPException(status_code=502, detail=str(e))
 
 
+async def _track_stream_usage(stream, tracker, provider_name, model):
+    """Wrap SSE stream, extract usage from events, record after stream ends."""
+    usage = {}
+    async for chunk in stream:
+        yield chunk
+        # Parse SSE data lines to accumulate usage
+        for line in chunk.split(b"\n"):
+            line = line.strip()
+            if line.startswith(b"data: "):
+                try:
+                    data = json.loads(line[6:])
+                    evt = data.get("type")
+                    if evt == "message_start":
+                        msg = data.get("message", {})
+                        u = msg.get("usage", {})
+                        usage["input_tokens"] = u.get("input_tokens", 0)
+                        usage["cache_read_input_tokens"] = u.get("cache_read_input_tokens", 0)
+                        usage["cache_creation_input_tokens"] = u.get("cache_creation_input_tokens", 0)
+                    elif evt == "message_delta":
+                        u = data.get("usage", {})
+                        usage["output_tokens"] = u.get("output_tokens", 0)
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    pass
+
+    if usage.get("input_tokens") is not None:
+        tracker.record(
+            provider_name, model,
+            usage.get("input_tokens", 0),
+            usage.get("output_tokens", 0),
+            usage.get("cache_read_input_tokens", 0),
+            usage.get("cache_creation_input_tokens", 0),
+        )
+
+
 @app.post("/v1/messages")
 async def anthropic_messages(request: Request):
     """Anthropic-format endpoint (compatible with Claude Code CLI)."""
@@ -113,7 +169,12 @@ async def anthropic_messages(request: Request):
 
             if isinstance(provider, AnthropicProvider):
                 return StreamingResponse(
-                    provider.proxy_request_stream(body),
+                    _track_stream_usage(
+                        provider.proxy_request_stream(body),
+                        service._tracker,
+                        provider_name,
+                        model,
+                    ),
                     media_type="text/event-stream",
                 )
             raise HTTPException(
