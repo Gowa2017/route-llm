@@ -1,5 +1,6 @@
 """FastAPI application — OpenAI-compatible proxy endpoint."""
 
+import json
 import logging
 from contextlib import asynccontextmanager
 
@@ -85,7 +86,9 @@ async def get_usage(
     """
     await _check_auth(request)
     tracker: UsageTracker = request.app.state.tracker
-    result = tracker.query(start_date=start_date, end_date=end_date, provider=provider, model=model)
+    result = tracker.query(
+        start_date=start_date, end_date=end_date, provider=provider, model=model
+    )
     return {"usage": result}
 
 
@@ -130,8 +133,12 @@ async def _track_stream_usage(stream, tracker, provider_name, model):
                         msg = data.get("message", {})
                         u = msg.get("usage", {})
                         usage["input_tokens"] = u.get("input_tokens", 0)
-                        usage["cache_read_input_tokens"] = u.get("cache_read_input_tokens", 0)
-                        usage["cache_creation_input_tokens"] = u.get("cache_creation_input_tokens", 0)
+                        usage["cache_read_input_tokens"] = u.get(
+                            "cache_read_input_tokens", 0
+                        )
+                        usage["cache_creation_input_tokens"] = u.get(
+                            "cache_creation_input_tokens", 0
+                        )
                     elif evt == "message_delta":
                         u = data.get("usage", {})
                         usage["output_tokens"] = u.get("output_tokens", 0)
@@ -140,7 +147,8 @@ async def _track_stream_usage(stream, tracker, provider_name, model):
 
     if usage.get("input_tokens") is not None:
         tracker.record(
-            provider_name, model,
+            provider_name,
+            model,
             usage.get("input_tokens", 0),
             usage.get("output_tokens", 0),
             usage.get("cache_read_input_tokens", 0),
@@ -157,7 +165,11 @@ async def anthropic_messages(request: Request):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
 
-    _log.info("anthropic_messages body model=%s stream=%s", body.get("model"), body.get("stream"))
+    _log.info(
+        "anthropic_messages body model=%s stream=%s",
+        body.get("model"),
+        body.get("stream"),
+    )
     service: RoutingService = request.app.state.service
     stream = body.get("stream", False)
     try:
@@ -207,18 +219,23 @@ async def anthropic_messages(request: Request):
                 if e.response.status_code in {429, 500, 502, 503}:
                     _log.warning(
                         "Provider %s %s failed (HTTP %d), retrying…",
-                        provider_name, model, e.response.status_code,
+                        provider_name,
+                        model,
+                        e.response.status_code,
                     )
                     service._router.failure_tracker.mark(provider_name)
                     exclude.add(provider_name)
                     continue
                 _log.error("anthropic_messages HTTPStatusError: %s", detail)
-                raise HTTPException(status_code=e.response.status_code, detail=detail) from e
+                raise HTTPException(
+                    status_code=e.response.status_code, detail=detail
+                ) from e
 
             usage = resp.get("usage", {})
             if usage:
                 service._tracker.record(
-                    provider_name, model,
+                    provider_name,
+                    model,
                     usage.get("input_tokens", 0),
                     usage.get("output_tokens", 0),
                     usage.get("cache_read_input_tokens", 0),
