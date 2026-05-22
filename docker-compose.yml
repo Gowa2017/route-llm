@@ -1,6 +1,6 @@
 services:
   router:
-    image: ccr.ccs.tencentyun.com/st-hub/llmrouter
+    image: ccr.ccs.tencentyun.com/st-hub/route-llm
     ports:
       - "8000:8000"
     volumes:
