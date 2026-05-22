@@ -8,8 +8,8 @@ ENV PIP_TRUSTED_HOST=mirrors.aliyun.com
 COPY pyproject.toml uv.lock ./
 RUN pip install uv --quiet && uv sync --no-dev --quiet
 
-COPY llmrouter/ llmrouter/
+COPY route_llm/ route_llm/
 
 EXPOSE 8000
 
-CMD ["uv", "run", "uvicorn", "llmrouter.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "uvicorn", "route_llm.main:app", "--host", "0.0.0.0", "--port", "8000"]

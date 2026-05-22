@@ -1,4 +1,4 @@
-"""Pydantic models for llmrouter."""
+"""Pydantic models for route_llm."""
 
 from datetime import time
 from pydantic import BaseModel

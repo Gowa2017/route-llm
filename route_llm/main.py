@@ -8,12 +8,12 @@ import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from llmrouter.config import load_config
-from llmrouter.middleware import RoutingService
-from llmrouter.provider.anthropic import AnthropicProvider
-from llmrouter.tracker import UsageTracker
+from route_llm.config import load_config
+from route_llm.middleware import RoutingService
+from route_llm.provider.anthropic import AnthropicProvider
+from route_llm.tracker import UsageTracker
 
-_log = logging.getLogger("llmrouter")
+_log = logging.getLogger("route_llm")
 _log.setLevel(logging.INFO)
 if not _log.handlers:
     _log.addHandler(logging.StreamHandler())
@@ -30,7 +30,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="llmrouter",
+    title="route_llm",
     description="Multi-provider LLM proxy with time-based routing",
     version="0.1.0",
     lifespan=lifespan,
@@ -63,7 +63,7 @@ async def list_models(request: Request):
     return {
         "object": "list",
         "data": [
-            {"id": "routed", "object": "model", "created": 0, "owned_by": "llmrouter"}
+            {"id": "routed", "object": "model", "created": 0, "owned_by": "route_llm"}
         ],
     }
 

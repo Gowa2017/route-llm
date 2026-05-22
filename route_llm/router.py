@@ -3,7 +3,7 @@
 import time
 from datetime import datetime, time as time_type
 
-from llmrouter.models import AppConfig, ProviderConfig, RoutingRule
+from route_llm.models import AppConfig, ProviderConfig, RoutingRule
 
 
 def _parse_time(t_str: str) -> time_type:

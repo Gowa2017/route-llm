@@ -1,5 +1,5 @@
 [project]
-name = "llmrouter"
+name = "route-llm"
 version = "0.1.0"
 description = "Multi-provider LLM proxy with time-based routing"
 readme = "README.md"

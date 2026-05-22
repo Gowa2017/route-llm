@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 from pathlib import Path
 
-_log = logging.getLogger("llmrouter")
+_log = logging.getLogger("route_llm")
 
 
 class UsageTracker:

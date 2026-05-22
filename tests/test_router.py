@@ -5,8 +5,8 @@ from datetime import time as time_type
 
 import pytest
 
-from llmrouter.models import AppConfig, ProviderConfig, RoutingRule, TimeRange
-from llmrouter.router import FailureTracker, Router, _in_time_range
+from route_llm.models import AppConfig, ProviderConfig, RoutingRule, TimeRange
+from route_llm.router import FailureTracker, Router, _in_time_range
 
 
 # ── FailureTracker ──────────────────────────────────────────────────────────
@@ -195,7 +195,7 @@ class TestRouterRules:
         )
 
     def test_rule_model_override_during_window(self, monkeypatch):
-        monkeypatch.setattr("llmrouter.router.datetime", _fake_datetime(time_type(16, 0)))
+        monkeypatch.setattr("route_llm.router.datetime", _fake_datetime(time_type(16, 0)))
         cfg = self.make_config()
         router = Router(cfg, available_providers={"anthropic.zhipu", "openai.deepseek"})
         provider, model = router.select("glm-5.1")
@@ -203,7 +203,7 @@ class TestRouterRules:
         assert model == "glm-4.7"
 
     def test_rule_not_applied_outside_window(self, monkeypatch):
-        monkeypatch.setattr("llmrouter.router.datetime", _fake_datetime(time_type(10, 0)))
+        monkeypatch.setattr("route_llm.router.datetime", _fake_datetime(time_type(10, 0)))
         cfg = self.make_config()
         router = Router(cfg, available_providers={"anthropic.zhipu", "openai.deepseek"})
         provider, model = router.select("glm-5.1")
@@ -211,7 +211,7 @@ class TestRouterRules:
         assert model == "glm-5.1"
 
     def test_rule_match_model_comma_separated(self, monkeypatch):
-        monkeypatch.setattr("llmrouter.router.datetime", _fake_datetime(time_type(16, 0)))
+        monkeypatch.setattr("route_llm.router.datetime", _fake_datetime(time_type(16, 0)))
         cfg = self.make_config()
         # Add turbo to zhipu's models and a rule for it
         cfg.providers["anthropic"]["zhipu"].models["glm-5-turbo"] = {"level": "large"}
@@ -231,7 +231,7 @@ class TestRouterRules:
         assert m2 == "glm-4.7"
 
     def test_rule_without_match_model_applies_to_all(self, monkeypatch):
-        monkeypatch.setattr("llmrouter.router.datetime", _fake_datetime(time_type(16, 0)))
+        monkeypatch.setattr("route_llm.router.datetime", _fake_datetime(time_type(16, 0)))
         cfg = self.make_config()
         cfg.providers["anthropic"]["zhipu"].models["any-model"] = {"level": "large"}
         cfg.providers["anthropic"]["zhipu"].rules.append(
@@ -248,7 +248,7 @@ class TestRouterRules:
 
     def test_cross_provider_redirect(self, monkeypatch):
         """Rule with 'provider' field redirects to another provider."""
-        monkeypatch.setattr("llmrouter.router.datetime", _fake_datetime(time_type(16, 0)))
+        monkeypatch.setattr("route_llm.router.datetime", _fake_datetime(time_type(16, 0)))
         cfg = self.make_config()
         # Add cross-provider redirect rule to zhipu
         cfg.providers["anthropic"]["zhipu"].rules.append(
@@ -268,7 +268,7 @@ class TestRouterRules:
 
     def test_highest_priority_rule_wins(self, monkeypatch):
         """Among multiple matching rules, highest priority wins."""
-        monkeypatch.setattr("llmrouter.router.datetime", _fake_datetime(time_type(16, 0)))
+        monkeypatch.setattr("route_llm.router.datetime", _fake_datetime(time_type(16, 0)))
         cfg = self.make_config()
         cfg.providers["anthropic"]["zhipu"].rules.append(
             RoutingRule(

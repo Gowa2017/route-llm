@@ -1,8 +1,8 @@
 """Tests for routing service / middleware."""
 
-from llmrouter.middleware import _key_configured
-from llmrouter.models import AppConfig, ProviderConfig
-from llmrouter.middleware import RoutingService
+from route_llm.middleware import _key_configured
+from route_llm.models import AppConfig, ProviderConfig
+from route_llm.middleware import RoutingService
 
 
 class TestKeyConfigured:

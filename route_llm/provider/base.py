@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 
-from llmrouter.models import ChatCompletionRequest, ChatCompletionResponse, ProviderConfig
+from route_llm.models import ChatCompletionRequest, ChatCompletionResponse, ProviderConfig
 
 
 class BaseProvider(ABC):

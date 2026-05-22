@@ -4,14 +4,14 @@ import os
 import tomllib
 from pathlib import Path
 
-from llmrouter.models import AppConfig
+from route_llm.models import AppConfig
 
 
-_CONFIG_ENV_VAR = "LLMROUTER_CONFIG"
+_CONFIG_ENV_VAR = "ROUTE_LLM_CONFIG"
 _DEFAULT_PATHS = [
     Path("config.toml"),
-    Path.home() / ".config" / "llmrouter" / "config.toml",
-    Path("/etc/llmrouter/config.toml"),
+    Path.home() / ".config" / "route_llm" / "config.toml",
+    Path("/etc/route_llm/config.toml"),
 ]
 
 
@@ -34,14 +34,14 @@ def _resolve_config_path() -> Path:
 def _apply_env_overrides(raw: dict) -> dict:
     """Override provider api_key / base_url from env vars.
 
-    LLMROUTER_PROVIDER_<TYPE>_<NAME>_API_KEY -> providers.<type>.<name>.api_key
-    LLMROUTER_PROVIDER_<TYPE>_<NAME>_BASE_URL -> providers.<type>.<name>.base_url
+    ROUTE_LLM_PROVIDER_<TYPE>_<NAME>_API_KEY -> providers.<type>.<name>.api_key
+    ROUTE_LLM_PROVIDER_<TYPE>_<NAME>_BASE_URL -> providers.<type>.<name>.base_url
     """
     providers = raw.get("providers", {})
     for proto_type, vendors in providers.items():
         for vendor_name in vendors:
-            env_api = f"LLMROUTER_PROVIDER_{proto_type.upper()}_{vendor_name.upper()}_API_KEY"
-            env_url = f"LLMROUTER_PROVIDER_{proto_type.upper()}_{vendor_name.upper()}_BASE_URL"
+            env_api = f"ROUTE_LLM_PROVIDER_{proto_type.upper()}_{vendor_name.upper()}_API_KEY"
+            env_url = f"ROUTE_LLM_PROVIDER_{proto_type.upper()}_{vendor_name.upper()}_BASE_URL"
             if env_api in os.environ:
                 providers[proto_type][vendor_name]["api_key"] = os.environ[env_api]
             if env_url in os.environ:

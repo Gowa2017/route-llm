@@ -6,9 +6,9 @@ import pytest
 import respx
 from httpx import Response
 
-from llmrouter.models import ChatCompletionRequest, ChatMessage, ProviderConfig
-from llmrouter.provider.anthropic import AnthropicProvider
-from llmrouter.provider.openai_compat import OpenAICompatProvider
+from route_llm.models import ChatCompletionRequest, ChatMessage, ProviderConfig
+from route_llm.provider.anthropic import AnthropicProvider
+from route_llm.provider.openai_compat import OpenAICompatProvider
 
 
 @pytest.fixture

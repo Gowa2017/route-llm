@@ -2,7 +2,7 @@
 
 import httpx
 
-from llmrouter.models import (
+from route_llm.models import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     Choice,
@@ -10,7 +10,7 @@ from llmrouter.models import (
     Usage,
     ProviderConfig,
 )
-from llmrouter.provider.base import BaseProvider
+from route_llm.provider.base import BaseProvider
 
 
 class OpenAICompatProvider(BaseProvider):

@@ -4,15 +4,15 @@ import logging
 
 import httpx
 
-from llmrouter.config import load_config
-from llmrouter.models import AppConfig, ChatCompletionRequest, ChatCompletionResponse
-from llmrouter.provider.anthropic import AnthropicProvider
-from llmrouter.provider.base import BaseProvider
-from llmrouter.provider.openai_compat import OpenAICompatProvider
-from llmrouter.router import Router
-from llmrouter.tracker import UsageTracker
+from route_llm.config import load_config
+from route_llm.models import AppConfig, ChatCompletionRequest, ChatCompletionResponse
+from route_llm.provider.anthropic import AnthropicProvider
+from route_llm.provider.base import BaseProvider
+from route_llm.provider.openai_compat import OpenAICompatProvider
+from route_llm.router import Router
+from route_llm.tracker import UsageTracker
 
-_log = logging.getLogger("llmrouter")
+_log = logging.getLogger("route_llm")
 
 _RETRYABLE_STATUSES = {429, 500, 502, 503}
 _MAX_RETRIES = 3
@@ -52,7 +52,7 @@ class RoutingService:
         self._log_loaded()
 
     def _log_loaded(self):
-        log = logging.getLogger("llmrouter")
+        log = logging.getLogger("route_llm")
         log.info("Loaded %d providers:", len(self._providers))
         for key in sorted(self._providers):
             models = self._provider_models(key)

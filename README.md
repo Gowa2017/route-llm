@@ -1,4 +1,4 @@
-# llmrouter
+# route-llm
 
 Multi-provider LLM proxy with time-based routing, auto-failover, and usage tracking.
 
@@ -31,7 +31,7 @@ cp config.example.toml config.toml
 
 ```bash
 # Local
-uv run uvicorn llmrouter.main:app --host 0.0.0.0 --port 8000 --reload
+uv run uvicorn route_llm.main:app --host 0.0.0.0 --port 8000 --reload
 
 # Docker
 docker compose up -d
@@ -53,10 +53,10 @@ curl http://localhost:8000/v1/chat/completions \
 
 Configuration is via TOML file. By default, the config is loaded from (in order):
 
-1. `$LLMROUTER_CONFIG` environment variable
+1. `$ROUTE_LLM_CONFIG` environment variable
 2. `./config.toml`
-3. `~/.config/llmrouter/config.toml`
-4. `/etc/llmrouter/config.toml`
+3. `~/.config/route-llm/config.toml`
+4. `/etc/route-llm/config.toml`
 
 ### Structure
 
@@ -111,8 +111,8 @@ Rules support cross-midnight time ranges (e.g., `start = "22:00", end = "06:00"`
 API keys and base URLs can be overridden via environment variables:
 
 ```bash
-LLMROUTER_PROVIDER_OPENAI_SILICONFLOW_API_KEY=sk-xxx
-LLMROUTER_PROVIDER_ANTHROPIC_ZHIPU_BASE_URL=https://custom-url/api/anthropic
+ROUTE_LLM_PROVIDER_OPENAI_SILICONFLOW_API_KEY=sk-xxx
+ROUTE_LLM_PROVIDER_ANTHROPIC_ZHIPU_BASE_URL=https://custom-url/api/anthropic
 ```
 
 ## API Endpoints
@@ -163,7 +163,7 @@ uv sync
 uv run pytest
 
 # Run with hot reload
-uv run python -m llmrouter
+uv run python -m route_llm
 ```
 
 ## Build & Push Docker Image

@@ -6,7 +6,7 @@ import uuid
 
 import httpx
 
-from llmrouter.models import (
+from route_llm.models import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     Choice,
@@ -14,7 +14,7 @@ from llmrouter.models import (
     Usage,
     ProviderConfig,
 )
-from llmrouter.provider.base import BaseProvider
+from route_llm.provider.base import BaseProvider
 
 _ANTHROPIC_VERSION = "2023-06-01"
 _DEFAULT_MAX_TOKENS = 4096

@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 import tomllib
 
-from llmrouter.config import _apply_env_overrides, load_config
-from llmrouter.models import AppConfig
+from route_llm.config import _apply_env_overrides, load_config
+from route_llm.models import AppConfig
 
 SAMPLE_TOML = """
 [providers]
@@ -47,7 +47,7 @@ def test_env_override_api_key(monkeypatch):
             }
         },
     }
-    monkeypatch.setenv("LLMROUTER_PROVIDER_OPENAI_DEEPSEEK_API_KEY", "sk-new")
+    monkeypatch.setenv("ROUTE_LLM_PROVIDER_OPENAI_DEEPSEEK_API_KEY", "sk-new")
     result = _apply_env_overrides(raw)
     assert result["providers"]["openai"]["deepseek"]["api_key"] == "sk-new"
 
@@ -60,7 +60,7 @@ def test_env_override_base_url(monkeypatch):
             }
         },
     }
-    monkeypatch.setenv("LLMROUTER_PROVIDER_OPENAI_DEEPSEEK_BASE_URL", "https://new.example.com")
+    monkeypatch.setenv("ROUTE_LLM_PROVIDER_OPENAI_DEEPSEEK_BASE_URL", "https://new.example.com")
     result = _apply_env_overrides(raw)
     assert result["providers"]["openai"]["deepseek"]["base_url"] == "https://new.example.com"
 
@@ -73,7 +73,7 @@ def test_env_override_unknown_provider_noop(monkeypatch):
             }
         },
     }
-    monkeypatch.setenv("LLMROUTER_PROVIDER_OPENAI_UNKNOWN_API_KEY", "sk-xxx")
+    monkeypatch.setenv("ROUTE_LLM_PROVIDER_OPENAI_UNKNOWN_API_KEY", "sk-xxx")
     result = _apply_env_overrides(raw)
     assert result["providers"]["openai"]["deepseek"]["api_key"] == "sk-test"
 
@@ -86,7 +86,7 @@ def test_env_override_unknown_type_noop(monkeypatch):
             }
         },
     }
-    monkeypatch.setenv("LLMROUTER_PROVIDER_UNKNOWN_DEEPSEEK_API_KEY", "sk-xxx")
+    monkeypatch.setenv("ROUTE_LLM_PROVIDER_UNKNOWN_DEEPSEEK_API_KEY", "sk-xxx")
     result = _apply_env_overrides(raw)
     assert result["providers"]["openai"]["deepseek"]["api_key"] == "sk-test"
 
