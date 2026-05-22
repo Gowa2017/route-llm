@@ -1,4 +1,4 @@
-IMAGE     ?= ccr.ccs.tencentyun.com/st-hub/llmrouter
+IMAGE     ?= ccr.ccs.tencentyun.com/st-hub/route-llm
 TAG       ?= latest
 PLATFORMS ?= linux/amd64,linux/arm64
 

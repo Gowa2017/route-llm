@@ -1,5 +1,5 @@
 services:
-  llmrouter:
+  router:
     image: ccr.ccs.tencentyun.com/st-hub/llmrouter
     ports:
       - "8000:8000"
