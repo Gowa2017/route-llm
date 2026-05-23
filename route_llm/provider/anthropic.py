@@ -38,6 +38,7 @@ async def _consume_sse(resp) -> dict:
             evt = data.get("type")
             if evt == "message_start":
                 message = data.get("message", {})
+                usage = message.get("usage", {})
             elif evt == "content_block_start":
                 idx = data.get("index", 0)
                 blocks[idx] = data.get("content_block", {})
@@ -55,7 +56,9 @@ async def _consume_sse(resp) -> dict:
                 delta = data.get("delta", {})
                 stop_reason = delta.get("stop_reason", stop_reason)
                 stop_sequence = delta.get("stop_sequence", stop_sequence)
-                usage = data.get("usage", usage)
+                delta_usage = data.get("usage", {})
+                if delta_usage:
+                    usage.update(delta_usage)
 
     if message is None:
         return {}
