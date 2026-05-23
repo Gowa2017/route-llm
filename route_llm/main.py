@@ -79,6 +79,40 @@ async def list_models(request: Request):
     }
 
 
+def _calc_cost(usage_items: list[dict], config) -> list[dict]:
+    """Enrich usage records with cost if pricing is configured."""
+    for item in usage_items:
+        pm = item.get("provider_model", "")
+        if "/" not in pm:
+            continue
+        provider_key, model_name = pm.split("/", 1)
+        if "." not in provider_key:
+            continue
+        proto, vendor = provider_key.split(".", 1)
+        vendor_cfg = config.providers.get(proto, {}).get(vendor)
+        if not vendor_cfg:
+            continue
+        mc = vendor_cfg.models.get(model_name)
+        if not mc:
+            continue
+        has_price = False
+        cost = {}
+        m = 1_000_000
+        if mc.input_price is not None:
+            cost["input_cost"] = round(item["input_tokens"] / m * mc.input_price, 6)
+            has_price = True
+        if mc.cache_read_price is not None:
+            cost["cache_read_cost"] = round(item["cache_read_tokens"] / m * mc.cache_read_price, 6)
+            has_price = True
+        if mc.output_price is not None:
+            cost["output_cost"] = round(item["output_tokens"] / m * mc.output_price, 6)
+            has_price = True
+        if has_price:
+            cost["total_cost"] = round(sum(cost.values()), 6)
+            item.update(cost)
+    return usage_items
+
+
 @app.get("/v1/usage")
 async def get_usage(
     request: Request,
@@ -100,6 +134,7 @@ async def get_usage(
     result = tracker.query(
         start_date=start_date, end_date=end_date, provider=provider, model=model
     )
+    result = _calc_cost(result, request.app.state.config)
     return {"usage": result}
 
 

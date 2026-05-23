@@ -62,6 +62,9 @@ class RoutingRule(BaseModel):
 class ModelConfig(BaseModel):
     level: str = "small"      # "small" | "medium" | "large"
     max_tokens: int = 4096
+    input_price: float | None = None          # per million tokens
+    cache_read_price: float | None = None     # per million tokens
+    output_price: float | None = None         # per million tokens
 
 
 class ProviderConfig(BaseModel):
