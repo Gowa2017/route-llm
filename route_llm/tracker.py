@@ -24,6 +24,7 @@ class UsageTracker:
         output_tokens: int,
         cache_read_tokens: int = 0,
         cache_creation_tokens: int = 0,
+        upstream_model: str | None = None,
     ):
         today = date.today().isoformat()
         path = self._base / f"{today}.jsonl"
@@ -36,6 +37,8 @@ class UsageTracker:
             "cache_creation_tokens": cache_creation_tokens,
             "timestamp": today,
         }
+        if upstream_model and upstream_model != model:
+            record["upstream_model"] = upstream_model
         with open(path, "a") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 

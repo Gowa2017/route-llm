@@ -121,7 +121,12 @@ class RoutingService:
                     provider_name, model,
                     resp.usage.prompt_tokens, resp.usage.completion_tokens,
                     resp.usage.cache_read_input_tokens, resp.usage.cache_creation_input_tokens,
+                    upstream_model=resp.model,
                 )
+            _log.info(
+                "upstream: provider=%s requested=%s upstream_model=%s",
+                provider_name, model, resp.model,
+            )
             return resp
 
         return await self._call_with_fallback(model_hint, _call)

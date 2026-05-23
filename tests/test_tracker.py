@@ -61,3 +61,23 @@ class TestUsageTracker:
         summary = t.today_summary()
         assert len(summary) == 2
         assert summary[0]["provider_model"] < summary[1]["provider_model"]  # sorted
+
+    def test_upstream_model_recorded(self, tmp_path):
+        t = UsageTracker(data_dir=str(tmp_path))
+        t.record("anthropic.zhipu", "glm-4.7", 100, 50, upstream_model="glm-4.7-flash")
+
+        files = list((tmp_path / "usage").glob("*.jsonl"))
+        with open(files[0]) as f:
+            data = json.loads(f.readline())
+        assert data["model"] == "glm-4.7"
+        assert data["upstream_model"] == "glm-4.7-flash"
+
+    def test_upstream_model_omitted_when_same(self, tmp_path):
+        t = UsageTracker(data_dir=str(tmp_path))
+        t.record("anthropic.zhipu", "glm-4.7", 100, 50, upstream_model="glm-4.7")
+
+        files = list((tmp_path / "usage").glob("*.jsonl"))
+        with open(files[0]) as f:
+            data = json.loads(f.readline())
+        assert data["model"] == "glm-4.7"
+        assert "upstream_model" not in data

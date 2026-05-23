@@ -136,9 +136,9 @@ async def chat_completions(request: Request):
 async def _track_stream_usage(stream, tracker, provider_name, model):
     """Wrap SSE stream, extract usage from events, record after stream ends."""
     usage = {}
+    upstream_model = None
     async for chunk in stream:
         yield chunk
-        # Parse SSE data lines to accumulate usage
         for line in chunk.split(b"\n"):
             line = line.strip()
             if line.startswith(b"data: "):
@@ -147,6 +147,7 @@ async def _track_stream_usage(stream, tracker, provider_name, model):
                     evt = data.get("type")
                     if evt == "message_start":
                         msg = data.get("message", {})
+                        upstream_model = msg.get("model")
                         u = msg.get("usage", {})
                         usage["input_tokens"] = u.get("input_tokens", 0)
                         usage["cache_read_input_tokens"] = u.get(
@@ -162,6 +163,11 @@ async def _track_stream_usage(stream, tracker, provider_name, model):
                     pass
 
     if usage.get("input_tokens") is not None:
+        if upstream_model and upstream_model != model:
+            _log.info(
+                "upstream: provider=%s requested=%s upstream_model=%s",
+                provider_name, model, upstream_model,
+            )
         tracker.record(
             provider_name,
             model,
@@ -169,6 +175,7 @@ async def _track_stream_usage(stream, tracker, provider_name, model):
             usage.get("output_tokens", 0),
             usage.get("cache_read_input_tokens", 0),
             usage.get("cache_creation_input_tokens", 0),
+            upstream_model=upstream_model,
         )
 
 
@@ -253,6 +260,12 @@ async def anthropic_messages(request: Request):
                     status_code=e.response.status_code, detail=detail
                 ) from e
 
+            upstream_model = resp.get("model")
+            if upstream_model and upstream_model != model:
+                _log.info(
+                    "upstream: provider=%s requested=%s upstream_model=%s",
+                    provider_name, model, upstream_model,
+                )
             usage = resp.get("usage", {})
             if usage:
                 service._tracker.record(
@@ -262,6 +275,7 @@ async def anthropic_messages(request: Request):
                     usage.get("output_tokens", 0),
                     usage.get("cache_read_input_tokens", 0),
                     usage.get("cache_creation_input_tokens", 0),
+                    upstream_model=upstream_model,
                 )
             return JSONResponse(content=resp)
 
