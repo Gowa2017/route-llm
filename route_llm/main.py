@@ -14,7 +14,7 @@ from route_llm.provider.anthropic import AnthropicProvider
 from route_llm.tracker import UsageTracker
 
 _log = logging.getLogger("route_llm")
-_log.setLevel(logging.INFO)
+_log.setLevel(logging.DEBUG)
 if not _log.handlers:
     _log.addHandler(logging.StreamHandler())
     _log.handlers[0].setFormatter(logging.Formatter("%(levelname)s %(message)s"))
@@ -101,6 +101,13 @@ async def chat_completions(request: Request):
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
 
     _log.info("chat_completions body model=%s", body.get("model"))
+    _log.debug(
+        "chat_completions extra fields: thinking=%s reasoning_effort=%s",
+        body.get("thinking"),
+        body.get("reasoning_effort"),
+    )
+    safe_body = {k: v for k, v in body.items() if k != "api_key"}
+    _log.debug("chat_completions full body: %s", json.dumps(safe_body, ensure_ascii=False))
     service: RoutingService = request.app.state.service
     try:
         resp = await service.chat_completion(body)
@@ -170,6 +177,17 @@ async def anthropic_messages(request: Request):
         body.get("model"),
         body.get("stream"),
     )
+    _log.debug(
+        "anthropic_messages extra fields: thinking=%s reasoning_effort=%s "
+        "context_management=%s output_config=%s",
+        body.get("thinking"),
+        body.get("reasoning_effort"),
+        body.get("context_management"),
+        body.get("output_config"),
+    )
+    # Log full request body at debug
+    safe_body = {k: v for k, v in body.items() if k != "api_key"}
+    _log.debug("anthropic_messages full body: %s", json.dumps(safe_body, ensure_ascii=False))
     service: RoutingService = request.app.state.service
     stream = body.get("stream", False)
     try:
