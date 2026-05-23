@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
 from route_llm.config import load_config
 from route_llm.middleware import RoutingService
@@ -113,6 +113,63 @@ def _calc_cost(usage_items: list[dict], config) -> list[dict]:
     return usage_items
 
 
+def _display_width(s: str) -> int:
+    """CJK chars are 2 columns wide; others 1."""
+    import unicodedata
+    return sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in s)
+
+
+def _pad(s: str, width: int) -> str:
+    """Right-pad to *display* width."""
+    return s + " " * (width - _display_width(s))
+
+
+def _fmt_table(items: list[dict]) -> str:
+    """Format usage data as box-drawing character table."""
+    headers = ["模型", "调用次数", "输入 tokens", "输出 tokens", "缓存读取", "费用(元)"]
+    rows = []
+    for item in items:
+        cost = item.get("total_cost")
+        cost_str = f"¥{cost:.3f}" if cost is not None else "—"
+        rows.append([
+            item["provider_model"],
+            str(item["calls"]),
+            f"{item['input_tokens']:,}",
+            f"{item['output_tokens']:,}",
+            f"{item.get('cache_read_tokens', 0):,}",
+            cost_str,
+        ])
+
+    all_rows = [headers] + rows
+    widths = [max(_display_width(c) for c in col) for col in zip(*all_rows)]
+
+    def hline(left, mid, right, fill="─"):
+        return left + mid.join(fill * (w + 2) for w in widths) + right
+
+    def fmt_row(cells):
+        return "│ " + " │ ".join(_pad(c, w) for c, w in zip(cells, widths)) + " │"
+
+    lines = [
+        hline("┌", "┬", "┐"),
+        fmt_row(headers),
+        hline("├", "┼", "┤"),
+    ]
+    for row in rows:
+        lines.append(fmt_row(row))
+        lines.append(hline("├", "┼", "┤"))
+    lines[-1] = hline("└", "┴", "┘")
+    return "\n".join(lines)
+
+
+async def _get_usage_data(request: Request, start_date, end_date, provider, model):
+    await _check_auth(request)
+    tracker: UsageTracker = request.app.state.tracker
+    result = tracker.query(
+        start_date=start_date, end_date=end_date, provider=provider, model=model
+    )
+    return _calc_cost(result, request.app.state.config)
+
+
 @app.get("/v1/usage")
 async def get_usage(
     request: Request,
@@ -121,21 +178,22 @@ async def get_usage(
     provider: str | None = None,
     model: str | None = None,
 ):
-    """Return aggregated usage per provider+model.
-
-    Query params (all optional):
-      start_date  - ISO date (default: today)
-      end_date    - ISO date (default: today)
-      provider    - substring filter on provider name
-      model       - substring filter on model name
-    """
-    await _check_auth(request)
-    tracker: UsageTracker = request.app.state.tracker
-    result = tracker.query(
-        start_date=start_date, end_date=end_date, provider=provider, model=model
-    )
-    result = _calc_cost(result, request.app.state.config)
+    """Return aggregated usage per provider+model (JSON)."""
+    result = await _get_usage_data(request, start_date, end_date, provider, model)
     return {"usage": result}
+
+
+@app.get("/v1/usage/table")
+async def get_usage_table(
+    request: Request,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+):
+    """Return aggregated usage as ASCII table."""
+    result = await _get_usage_data(request, start_date, end_date, provider, model)
+    return PlainTextResponse(_fmt_table(result) + "\n")
 
 
 @app.post("/v1/chat/completions")
