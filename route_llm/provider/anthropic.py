@@ -1,10 +1,13 @@
 """Anthropic provider — translates between OpenAI and Anthropic formats."""
 
 import json
+import logging
 import time
 import uuid
 
 import httpx
+
+_log = logging.getLogger("route_llm")
 
 from route_llm.models import (
     ChatCompletionRequest,
