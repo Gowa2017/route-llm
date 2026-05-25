@@ -251,7 +251,10 @@ async def _track_stream_usage(stream, tracker, provider_name, model):
                         )
                     elif evt == "message_delta":
                         u = data.get("usage", {})
+                        usage["input_tokens"] = u.get("input_tokens", usage.get("input_tokens", 0))
                         usage["output_tokens"] = u.get("output_tokens", 0)
+                        usage["cache_read_input_tokens"] = u.get("cache_read_input_tokens", usage.get("cache_read_input_tokens", 0))
+                        usage["cache_creation_input_tokens"] = u.get("cache_creation_input_tokens", usage.get("cache_creation_input_tokens", 0))
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     pass
 
