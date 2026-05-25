@@ -39,6 +39,7 @@ async def _consume_sse(resp) -> dict:
             if evt == "message_start":
                 message = data.get("message", {})
                 usage = message.get("usage", {})
+                _log.debug("_consume_sse message_start: message=%s usage=%s", message.get("id"), usage)
             elif evt == "content_block_start":
                 idx = data.get("index", 0)
                 blocks[idx] = data.get("content_block", {})
@@ -58,9 +59,12 @@ async def _consume_sse(resp) -> dict:
                 stop_sequence = delta.get("stop_sequence", stop_sequence)
                 delta_usage = data.get("usage", {})
                 if delta_usage:
+                    _log.debug("_consume_sse message_delta: usage before=%s delta=%s", usage, delta_usage)
                     usage.update(delta_usage)
+                    _log.debug("_consume_sse message_delta: usage after=%s", usage)
 
     if message is None:
+        _log.warning("_consume_sse: message is None, returning empty dict")
         return {}
 
     if stop_reason is not None:
@@ -69,6 +73,7 @@ async def _consume_sse(resp) -> dict:
         message["stop_sequence"] = stop_sequence
     if usage:
         message["usage"] = usage
+        _log.debug("_consume_sse final: usage=%s", usage)
 
     sorted_blocks = [blocks[i] for i in sorted(blocks)]
     if any(not b.get("text") for b in sorted_blocks):
