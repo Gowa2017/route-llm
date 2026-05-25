@@ -328,6 +328,8 @@ async def anthropic_messages(request: Request):
             _log.info("routed → provider=%s model=%s", provider_name, model)
             provider = service._providers.get(provider_name)
             if not provider:
+                if last_error:
+                    raise last_error
                 raise ValueError(f"Unknown provider: {provider_name}")
             if not isinstance(provider, AnthropicProvider):
                 raise HTTPException(
@@ -338,17 +340,18 @@ async def anthropic_messages(request: Request):
             body["model"] = model
             try:
                 resp = await provider.proxy_request(body)
+                service._router.failure_tracker.reset(provider_name)
             except httpx.HTTPStatusError as e:
                 last_error = e
                 detail = e.response.text or str(e)
                 if e.response.status_code in {429, 500, 502, 503}:
                     _log.warning(
-                        "Provider %s %s failed (HTTP %d), retrying…",
-                        provider_name,
-                        model,
-                        e.response.status_code,
+                        "Provider %s %s failed (HTTP %d): %s",
+                        provider_name, model, e.response.status_code, detail[:200],
                     )
-                    service._router.failure_tracker.mark(provider_name)
+                    service._router.failure_tracker.mark(
+                        provider_name, f"HTTP {e.response.status_code}: {detail[:100]}"
+                    )
                     exclude.add(provider_name)
                     continue
                 _log.error("anthropic_messages HTTPStatusError: %s", detail)

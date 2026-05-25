@@ -63,7 +63,10 @@ async def _consume_sse(resp) -> dict:
                 delta_usage = data.get("usage", {})
                 if delta_usage:
                     _log.debug("_consume_sse message_delta: usage before=%s delta=%s", usage, delta_usage)
-                    usage.update(delta_usage)
+                    usage["input_tokens"] = delta_usage.get("input_tokens", usage.get("input_tokens", 0))
+                    usage["output_tokens"] = delta_usage.get("output_tokens", usage.get("output_tokens", 0))
+                    usage["cache_read_input_tokens"] = delta_usage.get("cache_read_input_tokens", usage.get("cache_read_input_tokens", 0))
+                    usage["cache_creation_input_tokens"] = delta_usage.get("cache_creation_input_tokens", usage.get("cache_creation_input_tokens", 0))
                     _log.debug("_consume_sse message_delta: usage after=%s", usage)
 
     if message is None:

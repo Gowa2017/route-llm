@@ -87,18 +87,25 @@ class RoutingService:
             provider_name, model = self._router.select(model_hint, exclude)
             provider = self._providers.get(provider_name)
             if not provider:
+                if last_error:
+                    raise last_error
                 raise ValueError(f"Unknown provider: {provider_name}")
 
             try:
-                return await call_fn(provider, provider_name, model)
+                result = await call_fn(provider, provider_name, model)
+                self._router.failure_tracker.reset(provider_name)
+                return result
             except httpx.HTTPStatusError as e:
                 last_error = e
                 if e.response.status_code in _RETRYABLE_STATUSES:
+                    detail = e.response.text or str(e)
                     _log.warning(
-                        "Provider %s %s failed (HTTP %d), retrying…",
-                        provider_name, model, e.response.status_code,
+                        "Provider %s %s failed (HTTP %d): %s",
+                        provider_name, model, e.response.status_code, detail[:200],
                     )
-                    self._router.failure_tracker.mark(provider_name)
+                    self._router.failure_tracker.mark(
+                        provider_name, f"HTTP {e.response.status_code}: {detail[:100]}"
+                    )
                     exclude.add(provider_name)
                     continue
                 raise

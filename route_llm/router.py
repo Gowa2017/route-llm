@@ -1,9 +1,12 @@
 """Routing engine — weighted provider selection with per-provider rules."""
 
+import logging
 import time
 from datetime import datetime, time as time_type
 
 from route_llm.models import AppConfig, ProviderConfig, RoutingRule
+
+_log = logging.getLogger("route_llm")
 
 
 def _parse_time(t_str: str) -> time_type:
@@ -30,16 +33,32 @@ def _in_time_range(start: str, end: str, now: time_type | None = None) -> bool:
 class FailureTracker:
     """In-memory failure cooldown tracker.
 
-    Providers marked as failed are blocked for *cooldown* seconds (default 30 min).
-    Cleanup is lazy — entries expire on the next ``is_blocked()`` check.
+    Providers are blocked for *cooldown* seconds after *threshold* consecutive
+    failures. A single success resets the counter.
     """
 
-    def __init__(self, cooldown: int = 1800):
+    def __init__(self, cooldown: int = 1800, threshold: int = 3):
         self._cooldown = cooldown
-        self._failures: dict[str, float] = {}
+        self._threshold = threshold
+        self._failures: dict[str, float] = {}   # provider → blocked_since timestamp
+        self._counts: dict[str, int] = {}        # provider → consecutive failure count
 
-    def mark(self, provider: str):
-        self._failures[provider] = time.time()
+    def mark(self, provider: str, reason: str = ""):
+        """Record a failure. Block provider once consecutive failures reach threshold."""
+        count = self._counts.get(provider, 0) + 1
+        self._counts[provider] = count
+        _log.warning(
+            "Provider %s failure %d/%d%s%s",
+            provider, count, self._threshold,
+            f": {reason}" if reason else "",
+            " → BLOCKED" if count >= self._threshold else "",
+        )
+        if count >= self._threshold:
+            self._failures[provider] = time.time()
+
+    def reset(self, provider: str):
+        """Reset consecutive failure count for a provider (call on success)."""
+        self._counts.pop(provider, None)
 
     def is_blocked(self, provider: str) -> bool:
         ts = self._failures.get(provider)
@@ -47,11 +66,13 @@ class FailureTracker:
             return False
         if time.time() - ts >= self._cooldown:
             del self._failures[provider]
+            self._counts.pop(provider, None)
             return False
         return True
 
     def clear(self):
         self._failures.clear()
+        self._counts.clear()
 
     @property
     def failed_providers(self) -> set[str]:
