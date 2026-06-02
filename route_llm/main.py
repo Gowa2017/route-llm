@@ -127,11 +127,13 @@ def _pad(s: str, width: int) -> str:
 
 def _fmt_table(items: list[dict]) -> str:
     """Format usage data as box-drawing character table."""
-    headers = ["模型", "调用次数", "输入 tokens", "输出 tokens", "缓存读取", "费用(元)", "平均 tok/s", "峰值 tok/s"]
+    headers = ["模型", "调用次数", "输入 tokens", "输出 tokens", "缓存读取", "费用(元)", "平均首字", "最大首字", "平均 tok/s", "峰值 tok/s"]
     rows = []
     for item in items:
         cost = item.get("total_cost")
         cost_str = f"¥{cost:.3f}" if cost is not None else "—"
+        avg_ttft = item.get("avg_ttft_ms")
+        max_ttft = item.get("max_ttft_ms")
         avg_tps = item.get("avg_tokens_per_sec")
         peak_tps = item.get("peak_tokens_per_sec")
         rows.append([
@@ -141,6 +143,8 @@ def _fmt_table(items: list[dict]) -> str:
             f"{item['output_tokens']:,}",
             f"{item.get('cache_read_tokens', 0):,}",
             cost_str,
+            f"{avg_ttft:.0f}ms" if avg_ttft is not None else "—",
+            f"{max_ttft:.0f}ms" if max_ttft is not None else "—",
             f"{avg_tps:.1f}" if avg_tps is not None else "—",
             f"{peak_tps:.1f}" if peak_tps is not None else "—",
         ])
@@ -236,6 +240,7 @@ async def _track_stream_usage(stream, tracker, provider_name, model):
     start = time.monotonic()
     usage = {}
     upstream_model = None
+    ttft_ms = None
     try:
         async for chunk in stream:
             yield chunk
@@ -246,6 +251,8 @@ async def _track_stream_usage(stream, tracker, provider_name, model):
                         data = json.loads(line[5:].strip())
                         evt = data.get("type")
                         if evt == "message_start":
+                            if ttft_ms is None:
+                                ttft_ms = int((time.monotonic() - start) * 1000)
                             msg = data.get("message", {})
                             upstream_model = msg.get("model")
                             u = msg.get("usage", {})
@@ -288,6 +295,7 @@ async def _track_stream_usage(stream, tracker, provider_name, model):
                 usage.get("cache_creation_input_tokens", 0),
                 upstream_model=upstream_model,
                 duration_ms=duration_ms,
+                ttft_ms=ttft_ms,
             )
 
 

@@ -26,6 +26,7 @@ class UsageTracker:
         cache_creation_tokens: int = 0,
         upstream_model: str | None = None,
         duration_ms: int | None = None,
+        ttft_ms: int | None = None,
     ):
         now = datetime.now().isoformat()
         path = self._base / f"{date.today().isoformat()}.jsonl"
@@ -42,6 +43,8 @@ class UsageTracker:
             record["upstream_model"] = upstream_model
         if duration_ms is not None:
             record["duration_ms"] = duration_ms
+        if ttft_ms is not None:
+            record["ttft_ms"] = ttft_ms
         with open(path, "a") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
@@ -91,6 +94,7 @@ class UsageTracker:
                 "cache_creation_tokens": 0,
                 "total_duration_ms": 0,
                 "tokens_per_sec_samples": [],
+                "ttft_ms_samples": [],
             }
         )
         for r in rows:
@@ -106,6 +110,8 @@ class UsageTracker:
                 if duration_ms > 0 and r.get("output_tokens", 0) > 0:
                     tps = r["output_tokens"] / (duration_ms / 1000)
                     agg[key]["tokens_per_sec_samples"].append(tps)
+            if "ttft_ms" in r:
+                agg[key]["ttft_ms_samples"].append(r["ttft_ms"])
 
         results = []
         for k, v in sorted(agg.items()):
@@ -119,5 +125,9 @@ class UsageTracker:
                 samples = v["tokens_per_sec_samples"]
                 row["avg_tokens_per_sec"] = round(sum(samples) / len(samples), 2) if samples else 0
                 row["peak_tokens_per_sec"] = round(max(samples), 2) if samples else 0
+            ttft = v["ttft_ms_samples"]
+            if ttft:
+                row["avg_ttft_ms"] = round(sum(ttft) / len(ttft), 1)
+                row["max_ttft_ms"] = round(max(ttft), 1)
             results.append(row)
         return results

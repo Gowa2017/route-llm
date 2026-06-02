@@ -115,3 +115,25 @@ class TestUsageTracker:
         assert sm1["output_tokens"] == 150
         assert sm1["avg_tokens_per_sec"] == 100.0  # Only the record with duration
         assert sm1["peak_tokens_per_sec"] == 100.0
+
+    def test_ttft_tracking(self, tmp_path):
+        t = UsageTracker(data_dir=str(tmp_path))
+        t.record("p1", "m1", 50, 100, duration_ms=2000, ttft_ms=300)
+        t.record("p1", "m1", 50, 200, duration_ms=1000, ttft_ms=500)
+
+        summary = t.today_summary()
+        sm1 = [s for s in summary if s["provider_model"] == "p1/m1"][0]
+
+        assert sm1["avg_ttft_ms"] == 400.0  # (300 + 500) / 2
+        assert sm1["max_ttft_ms"] == 500.0
+
+    def test_ttft_missing(self, tmp_path):
+        """Legacy records without ttft_ms should not break."""
+        t = UsageTracker(data_dir=str(tmp_path))
+        t.record("p1", "m1", 50, 100, duration_ms=2000)
+
+        summary = t.today_summary()
+        sm1 = [s for s in summary if s["provider_model"] == "p1/m1"][0]
+
+        assert "avg_ttft_ms" not in sm1
+        assert "max_ttft_ms" not in sm1
