@@ -182,7 +182,15 @@ class AnthropicProvider(BaseProvider):
     async def proxy_request_stream(self, body: dict):
         """Forward Anthropic-format request, yield SSE byte chunks."""
         async with self._client.stream("POST", "/v1/messages", json=body) as resp:
-            resp.raise_for_status()
+            try:
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                detail = e.response.text or str(e)
+                _log.error(
+                    "proxy_request_stream HTTP %d: %s",
+                    e.response.status_code, detail[:500],
+                )
+                raise
             ct = resp.headers.get("content-type", "")
             if "text/event-stream" not in ct:
                 yield b"data: " + (await resp.aread()) + b"\n\n"

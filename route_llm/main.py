@@ -230,49 +230,57 @@ async def _track_stream_usage(stream, tracker, provider_name, model):
     """Wrap SSE stream, extract usage from events, record after stream ends."""
     usage = {}
     upstream_model = None
-    async for chunk in stream:
-        yield chunk
-        for line in chunk.split(b"\n"):
-            line = line.strip()
-            if line.startswith(b"data: "):
-                try:
-                    data = json.loads(line[6:])
-                    evt = data.get("type")
-                    if evt == "message_start":
-                        msg = data.get("message", {})
-                        upstream_model = msg.get("model")
-                        u = msg.get("usage", {})
-                        usage["input_tokens"] = u.get("input_tokens", 0)
-                        usage["cache_read_input_tokens"] = u.get(
-                            "cache_read_input_tokens", 0
-                        )
-                        usage["cache_creation_input_tokens"] = u.get(
-                            "cache_creation_input_tokens", 0
-                        )
-                    elif evt == "message_delta":
-                        u = data.get("usage", {})
-                        usage["input_tokens"] = u.get("input_tokens", usage.get("input_tokens", 0))
-                        usage["output_tokens"] = u.get("output_tokens", 0)
-                        usage["cache_read_input_tokens"] = u.get("cache_read_input_tokens", usage.get("cache_read_input_tokens", 0))
-                        usage["cache_creation_input_tokens"] = u.get("cache_creation_input_tokens", usage.get("cache_creation_input_tokens", 0))
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    pass
-
-    if usage.get("input_tokens") is not None:
-        if upstream_model and upstream_model != model:
-            _log.info(
-                "upstream: provider=%s requested=%s upstream_model=%s",
-                provider_name, model, upstream_model,
+    try:
+        async for chunk in stream:
+            yield chunk
+            for line in chunk.split(b"\n"):
+                line = line.strip()
+                if line.startswith(b"data:"):
+                    try:
+                        data = json.loads(line[5:].strip())
+                        evt = data.get("type")
+                        if evt == "message_start":
+                            msg = data.get("message", {})
+                            upstream_model = msg.get("model")
+                            u = msg.get("usage", {})
+                            usage["input_tokens"] = u.get("input_tokens", 0)
+                            usage["cache_read_input_tokens"] = u.get(
+                                "cache_read_input_tokens", 0
+                            )
+                            usage["cache_creation_input_tokens"] = u.get(
+                                "cache_creation_input_tokens", 0
+                            )
+                        elif evt == "message_delta":
+                            u = data.get("usage", {})
+                            if u:
+                                usage["input_tokens"] = u.get("input_tokens", usage.get("input_tokens", 0))
+                                usage["output_tokens"] = u.get("output_tokens", usage.get("output_tokens", 0))
+                                usage["cache_read_input_tokens"] = u.get("cache_read_input_tokens", usage.get("cache_read_input_tokens", 0))
+                                usage["cache_creation_input_tokens"] = u.get("cache_creation_input_tokens", usage.get("cache_creation_input_tokens", 0))
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        pass
+    except httpx.HTTPStatusError:
+        raise
+    except Exception as e:
+        _log.error("_track_stream_usage error: %s", e)
+        yield f"event: error\ndata: {json.dumps({'detail': str(e)})}\n\n".encode()
+        return
+    finally:
+        if usage.get("input_tokens") is not None:
+            if upstream_model and upstream_model != model:
+                _log.info(
+                    "upstream: provider=%s requested=%s upstream_model=%s",
+                    provider_name, model, upstream_model,
+                )
+            tracker.record(
+                provider_name,
+                model,
+                usage.get("input_tokens", 0),
+                usage.get("output_tokens", 0),
+                usage.get("cache_read_input_tokens", 0),
+                usage.get("cache_creation_input_tokens", 0),
+                upstream_model=upstream_model,
             )
-        tracker.record(
-            provider_name,
-            model,
-            usage.get("input_tokens", 0),
-            usage.get("output_tokens", 0),
-            usage.get("cache_read_input_tokens", 0),
-            usage.get("cache_creation_input_tokens", 0),
-            upstream_model=upstream_model,
-        )
 
 
 @app.post("/v1/messages")
@@ -305,14 +313,33 @@ async def anthropic_messages(request: Request):
             body["model"] = model
 
             if isinstance(provider, AnthropicProvider):
+                stream = _track_stream_usage(
+                    provider.proxy_request_stream(body),
+                    service._tracker,
+                    provider_name,
+                    model,
+                )
+                try:
+                    first_chunk = await stream.__anext__()
+                except httpx.HTTPStatusError as e:
+                    detail = e.response.text or str(e)
+                    _log.error(
+                        "anthropic_messages stream HTTPStatusError: %s", detail
+                    )
+                    raise HTTPException(
+                        status_code=e.response.status_code, detail=detail
+                    ) from e
+                except Exception as e:
+                    _log.error("anthropic_messages stream error: %s", e)
+                    raise HTTPException(status_code=502, detail=str(e)) from e
+
+                async def _wrapped():
+                    yield first_chunk
+                    async for chunk in stream:
+                        yield chunk
+
                 return StreamingResponse(
-                    _track_stream_usage(
-                        provider.proxy_request_stream(body),
-                        service._tracker,
-                        provider_name,
-                        model,
-                    ),
-                    media_type="text/event-stream",
+                    _wrapped(), media_type="text/event-stream"
                 )
             raise HTTPException(
                 status_code=501,
