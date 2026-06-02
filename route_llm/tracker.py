@@ -3,7 +3,7 @@
 import json
 import logging
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 _log = logging.getLogger("route_llm")
@@ -25,9 +25,10 @@ class UsageTracker:
         cache_read_tokens: int = 0,
         cache_creation_tokens: int = 0,
         upstream_model: str | None = None,
+        duration_ms: int | None = None,
     ):
-        today = date.today().isoformat()
-        path = self._base / f"{today}.jsonl"
+        now = datetime.now().isoformat()
+        path = self._base / f"{date.today().isoformat()}.jsonl"
         record = {
             "provider": provider,
             "model": model,
@@ -35,10 +36,12 @@ class UsageTracker:
             "output_tokens": output_tokens,
             "cache_read_tokens": cache_read_tokens,
             "cache_creation_tokens": cache_creation_tokens,
-            "timestamp": today,
+            "timestamp": now,
         }
         if upstream_model and upstream_model != model:
             record["upstream_model"] = upstream_model
+        if duration_ms is not None:
+            record["duration_ms"] = duration_ms
         with open(path, "a") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
@@ -80,7 +83,15 @@ class UsageTracker:
             d += timedelta(days=1)
 
         agg: dict = defaultdict(
-            lambda: {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_creation_tokens": 0}
+            lambda: {
+                "calls": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cache_read_tokens": 0,
+                "cache_creation_tokens": 0,
+                "total_duration_ms": 0,
+                "tokens_per_sec_samples": [],
+            }
         )
         for r in rows:
             key = f"{r['provider']}/{r['model']}"
@@ -89,5 +100,24 @@ class UsageTracker:
             agg[key]["output_tokens"] += r["output_tokens"]
             agg[key]["cache_read_tokens"] += r.get("cache_read_tokens", 0)
             agg[key]["cache_creation_tokens"] += r.get("cache_creation_tokens", 0)
+            if "duration_ms" in r:
+                duration_ms = r["duration_ms"]
+                agg[key]["total_duration_ms"] += duration_ms
+                if duration_ms > 0 and r.get("output_tokens", 0) > 0:
+                    tps = r["output_tokens"] / (duration_ms / 1000)
+                    agg[key]["tokens_per_sec_samples"].append(tps)
 
-        return [{"provider_model": k, **v} for k, v in sorted(agg.items())]
+        results = []
+        for k, v in sorted(agg.items()):
+            row = {"provider_model": k}
+            row["calls"] = v["calls"]
+            row["input_tokens"] = v["input_tokens"]
+            row["output_tokens"] = v["output_tokens"]
+            row["cache_read_tokens"] = v["cache_read_tokens"]
+            row["cache_creation_tokens"] = v["cache_creation_tokens"]
+            if v["total_duration_ms"] > 0:
+                samples = v["tokens_per_sec_samples"]
+                row["avg_tokens_per_sec"] = round(sum(samples) / len(samples), 2) if samples else 0
+                row["peak_tokens_per_sec"] = round(max(samples), 2) if samples else 0
+            results.append(row)
+        return results

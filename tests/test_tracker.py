@@ -81,3 +81,37 @@ class TestUsageTracker:
             data = json.loads(f.readline())
         assert data["model"] == "glm-4.7"
         assert "upstream_model" not in data
+
+    def test_tokens_per_sec_calculation(self, tmp_path):
+        t = UsageTracker(data_dir=str(tmp_path))
+        # Request 1: 100 output tokens in 1000ms = 100 tps
+        t.record("p1", "m1", 50, 100, duration_ms=1000)
+        # Request 2: 200 output tokens in 500ms = 400 tps (peak)
+        t.record("p1", "m1", 50, 200, duration_ms=500)
+
+        summary = t.today_summary()
+        sm1 = [s for s in summary if s["provider_model"] == "p1/m1"][0]
+
+        assert sm1["calls"] == 2
+        assert sm1["output_tokens"] == 300
+        assert sm1["avg_tokens_per_sec"] == 250.0  # (100 + 400) / 2
+        assert sm1["peak_tokens_per_sec"] == 400.0
+
+    def test_tokens_per_sec_missing_duration(self, tmp_path):
+        t = UsageTracker(data_dir=str(tmp_path))
+        t.record("p1", "m1", 50, 100, duration_ms=1000)
+        # Old record without duration_ms (direct write to simulate legacy data)
+        import datetime
+        today = datetime.date.today().isoformat()
+        usage_dir = tmp_path / "usage"
+        with open(usage_dir / f"{today}.jsonl", "a") as f:
+            f.write('{"provider":"p1","model":"m1","input_tokens":10,"output_tokens":50}\n')
+
+        summary = t.today_summary()
+        sm1 = [s for s in summary if s["provider_model"] == "p1/m1"][0]
+
+        # Should only calculate for the record with duration_ms
+        assert sm1["calls"] == 2
+        assert sm1["output_tokens"] == 150
+        assert sm1["avg_tokens_per_sec"] == 100.0  # Only the record with duration
+        assert sm1["peak_tokens_per_sec"] == 100.0

@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 from contextlib import asynccontextmanager
 
 import httpx
@@ -126,11 +127,13 @@ def _pad(s: str, width: int) -> str:
 
 def _fmt_table(items: list[dict]) -> str:
     """Format usage data as box-drawing character table."""
-    headers = ["模型", "调用次数", "输入 tokens", "输出 tokens", "缓存读取", "费用(元)"]
+    headers = ["模型", "调用次数", "输入 tokens", "输出 tokens", "缓存读取", "费用(元)", "平均 tok/s", "峰值 tok/s"]
     rows = []
     for item in items:
         cost = item.get("total_cost")
         cost_str = f"¥{cost:.3f}" if cost is not None else "—"
+        avg_tps = item.get("avg_tokens_per_sec")
+        peak_tps = item.get("peak_tokens_per_sec")
         rows.append([
             item["provider_model"],
             str(item["calls"]),
@@ -138,6 +141,8 @@ def _fmt_table(items: list[dict]) -> str:
             f"{item['output_tokens']:,}",
             f"{item.get('cache_read_tokens', 0):,}",
             cost_str,
+            f"{avg_tps:.1f}" if avg_tps is not None else "—",
+            f"{peak_tps:.1f}" if peak_tps is not None else "—",
         ])
 
     all_rows = [headers] + rows
@@ -228,6 +233,7 @@ async def chat_completions(request: Request):
 
 async def _track_stream_usage(stream, tracker, provider_name, model):
     """Wrap SSE stream, extract usage from events, record after stream ends."""
+    start = time.monotonic()
     usage = {}
     upstream_model = None
     try:
@@ -266,6 +272,7 @@ async def _track_stream_usage(stream, tracker, provider_name, model):
         yield f"event: error\ndata: {json.dumps({'detail': str(e)})}\n\n".encode()
         return
     finally:
+        duration_ms = int((time.monotonic() - start) * 1000)
         if usage.get("input_tokens") is not None:
             if upstream_model and upstream_model != model:
                 _log.info(
@@ -280,6 +287,7 @@ async def _track_stream_usage(stream, tracker, provider_name, model):
                 usage.get("cache_read_input_tokens", 0),
                 usage.get("cache_creation_input_tokens", 0),
                 upstream_model=upstream_model,
+                duration_ms=duration_ms,
             )
 
 
