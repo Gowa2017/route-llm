@@ -266,16 +266,13 @@ async def _track_stream_usage(stream, tracker, provider_name, model):
                         elif evt == "message_delta":
                             u = data.get("usage", {})
                             if u:
-                                usage["input_tokens"] = u.get("input_tokens", usage.get("input_tokens", 0))
                                 usage["output_tokens"] = u.get("output_tokens", usage.get("output_tokens", 0))
-                                usage["cache_read_input_tokens"] = u.get("cache_read_input_tokens", usage.get("cache_read_input_tokens", 0))
-                                usage["cache_creation_input_tokens"] = u.get("cache_creation_input_tokens", usage.get("cache_creation_input_tokens", 0))
                     except (json.JSONDecodeError, UnicodeDecodeError):
                         pass
     except httpx.HTTPStatusError:
         raise
     except Exception as e:
-        _log.error("_track_stream_usage error: %s", e)
+        _log.error("_track_stream_usage error", exc_info=True)
         yield f"event: error\ndata: {json.dumps({'detail': str(e)})}\n\n".encode()
         return
     finally:
@@ -286,17 +283,20 @@ async def _track_stream_usage(stream, tracker, provider_name, model):
                     "upstream: provider=%s requested=%s upstream_model=%s",
                     provider_name, model, upstream_model,
                 )
-            tracker.record(
-                provider_name,
-                model,
-                usage.get("input_tokens", 0),
-                usage.get("output_tokens", 0),
-                usage.get("cache_read_input_tokens", 0),
-                usage.get("cache_creation_input_tokens", 0),
-                upstream_model=upstream_model,
-                duration_ms=duration_ms,
-                ttft_ms=ttft_ms,
-            )
+            try:
+                tracker.record(
+                    provider_name,
+                    model,
+                    usage.get("input_tokens", 0),
+                    usage.get("output_tokens", 0),
+                    usage.get("cache_read_input_tokens", 0),
+                    usage.get("cache_creation_input_tokens", 0),
+                    upstream_model=upstream_model,
+                    duration_ms=duration_ms,
+                    ttft_ms=ttft_ms,
+                )
+            except Exception as rec_err:
+                _log.error("_track_stream_usage record error", exc_info=True)
 
 
 @app.post("/v1/messages")
