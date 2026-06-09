@@ -267,6 +267,13 @@ async def _track_stream_usage(stream, tracker, provider_name, model):
                             u = data.get("usage", {})
                             if u:
                                 usage["output_tokens"] = u.get("output_tokens", usage.get("output_tokens", 0))
+                                # Some providers (xiaomi/mimo, zhipu/glm-5.1) report
+                                # input_tokens=0 in message_start and the real values
+                                # here in message_delta.
+                                for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"):
+                                    val = u.get(key)
+                                    if val:
+                                        usage[key] = val
                     except (json.JSONDecodeError, UnicodeDecodeError):
                         pass
     except httpx.HTTPStatusError:
