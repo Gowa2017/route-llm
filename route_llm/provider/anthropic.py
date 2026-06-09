@@ -163,7 +163,7 @@ class AnthropicProvider(BaseProvider):
                 "anthropic-version": _ANTHROPIC_VERSION,
                 "Content-Type": "application/json",
             },
-            timeout=120,
+            timeout=360,
         )
 
     async def proxy_request(self, body: dict) -> dict:
@@ -185,6 +185,12 @@ class AnthropicProvider(BaseProvider):
             try:
                 resp.raise_for_status()
             except httpx.HTTPStatusError as e:
+                # 立即读取 body，流式消费后可能读不到
+                try:
+                    body_bytes = await resp.aread()
+                    e.response._content = body_bytes
+                except Exception:
+                    pass
                 detail = e.response.text or str(e)
                 _log.error(
                     "proxy_request_stream HTTP %d: %s",

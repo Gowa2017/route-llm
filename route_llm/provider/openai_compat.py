@@ -24,7 +24,7 @@ class OpenAICompatProvider(BaseProvider):
                 "Authorization": f"Bearer {config.api_key}",
                 "Content-Type": "application/json",
             },
-            timeout=120,
+            timeout=360,
         )
 
     async def chat_completion(
