@@ -14,6 +14,10 @@ from route_llm.middleware import RoutingService
 from route_llm.provider.anthropic import AnthropicProvider
 from route_llm.tracker import UsageTracker
 
+import os
+
+_DEBUG_BODY = os.environ.get("ROUTE_LLM_DEBUG_BODY", "").lower() in ("1", "true", "yes")
+
 _log = logging.getLogger("route_llm")
 _log.setLevel(logging.DEBUG)
 if not _log.handlers:
@@ -214,6 +218,8 @@ async def chat_completions(request: Request):
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
 
     _log.info("chat_completions body model=%s", body.get("model"))
+    if _DEBUG_BODY:
+        _log.debug("chat_completions body: %s", json.dumps(body, ensure_ascii=False))
     _log.info(
         "chat_completions extra fields: thinking=%s reasoning_effort=%s",
         body.get("thinking"),
@@ -330,6 +336,8 @@ async def anthropic_messages(request: Request):
         body.get("context_management"),
         body.get("output_config"),
     )
+    if _DEBUG_BODY:
+        _log.debug("anthropic_messages body: %s", json.dumps(body, ensure_ascii=False))
     service: RoutingService = request.app.state.service
     stream = body.get("stream", False)
     try:
