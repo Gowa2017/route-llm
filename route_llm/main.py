@@ -241,10 +241,13 @@ async def _track_stream_usage(stream, tracker, provider_name, model):
     usage = {}
     upstream_model = None
     ttft_ms = None
+    buf = b""
     try:
         async for chunk in stream:
             yield chunk
-            for line in chunk.split(b"\n"):
+            buf += chunk
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
                 line = line.strip()
                 if line.startswith(b"data:"):
                     try:
@@ -256,6 +259,7 @@ async def _track_stream_usage(stream, tracker, provider_name, model):
                             msg = data.get("message", {})
                             upstream_model = msg.get("model")
                             u = msg.get("usage", {})
+                            _log.debug("message_start usage: %s", u)
                             usage["input_tokens"] = u.get("input_tokens", 0)
                             usage["cache_read_input_tokens"] = u.get(
                                 "cache_read_input_tokens", 0
@@ -265,15 +269,15 @@ async def _track_stream_usage(stream, tracker, provider_name, model):
                             )
                         elif evt == "message_delta":
                             u = data.get("usage", {})
+                            _log.debug("message_delta usage: %s", u)
                             if u:
                                 usage["output_tokens"] = u.get("output_tokens", usage.get("output_tokens", 0))
                                 # Some providers (xiaomi/mimo, zhipu/glm-5.1) report
                                 # input_tokens=0 in message_start and the real values
                                 # here in message_delta.
                                 for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"):
-                                    val = u.get(key)
-                                    if val:
-                                        usage[key] = val
+                                    if key in u:
+                                        usage[key] = u[key]
                     except (json.JSONDecodeError, UnicodeDecodeError):
                         pass
     except httpx.HTTPStatusError:
