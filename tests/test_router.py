@@ -6,47 +6,84 @@ from datetime import time as time_type
 import pytest
 
 from route_llm.models import AppConfig, ProviderConfig, RoutingRule, TimeRange
-from route_llm.router import FailureTracker, Router, _in_time_range
+from route_llm.router import FailureTracker, Router, _in_time_range, FailureType
 
 
 # ── FailureTracker ──────────────────────────────────────────────────────────
 
 class TestFailureTracker:
     def test_mark_and_is_blocked(self):
-        ft = FailureTracker(cooldown=3600)
-        ft.mark("openai.deepseek")
+        ft = FailureTracker(temporary_cooldown=3600)
+        ft.mark("openai.deepseek", FailureType.TEMPORARY)
         assert ft.is_blocked("openai.deepseek")
 
     def test_not_marked(self):
-        ft = FailureTracker(cooldown=3600)
+        ft = FailureTracker(temporary_cooldown=3600)
         assert not ft.is_blocked("openai.deepseek")
 
-    def test_cooldown_expires(self):
-        ft = FailureTracker(cooldown=0.01)
-        ft.mark("openai.deepseek")
+    def test_temporary_cooldown_expires(self):
+        ft = FailureTracker(temporary_cooldown=0.01)
+        ft.mark("openai.deepseek", FailureType.TEMPORARY)
+        time.sleep(0.02)
+        assert not ft.is_blocked("openai.deepseek")
+
+    def test_permanent_cooldown_expires(self):
+        ft = FailureTracker(permanent_cooldown=0.01, permanent_threshold=1)
+        ft.mark("openai.deepseek", FailureType.PERMANENT)
         time.sleep(0.02)
         assert not ft.is_blocked("openai.deepseek")
 
     def test_clear(self):
-        ft = FailureTracker(cooldown=3600)
-        ft.mark("openai.deepseek")
-        ft.mark("anthropic.zhipu")
+        ft = FailureTracker(temporary_cooldown=3600)
+        ft.mark("openai.deepseek", FailureType.TEMPORARY)
+        ft.mark("anthropic.zhipu", FailureType.PERMANENT)
         ft.clear()
         assert not ft.is_blocked("openai.deepseek")
         assert not ft.is_blocked("anthropic.zhipu")
         assert ft.failed_providers == set()
 
     def test_failed_providers_property(self):
-        ft = FailureTracker(cooldown=3600)
-        ft.mark("openai.deepseek")
-        ft.mark("anthropic.zhipu")
+        ft = FailureTracker(temporary_cooldown=3600, permanent_threshold=1)
+        ft.mark("openai.deepseek", FailureType.TEMPORARY)
+        ft.mark("anthropic.zhipu", FailureType.PERMANENT)
         assert ft.failed_providers == {"openai.deepseek", "anthropic.zhipu"}
 
     def test_multiple_marks_same_provider(self):
-        ft = FailureTracker(cooldown=3600)
-        ft.mark("openai.deepseek")
-        ft.mark("openai.deepseek")  # no crash
+        ft = FailureTracker(temporary_cooldown=3600)
+        ft.mark("openai.deepseek", FailureType.TEMPORARY)
+        ft.mark("openai.deepseek", FailureType.TEMPORARY)  # no crash
         assert ft.is_blocked("openai.deepseek")
+
+    def test_temporary_vs_permanent_cooldown(self):
+        """Verify different failure types use different cooldown times."""
+        ft = FailureTracker(temporary_cooldown=1, permanent_threshold=1)
+        # Temporary error should expire quickly
+        ft.mark("openai.deepseek", FailureType.TEMPORARY)
+        time.sleep(1.1)
+        assert not ft.is_blocked("openai.deepseek")
+
+    def test_is_blocked_when_any_type_blocks(self):
+        """Provider is blocked if ANY failure type reaches threshold."""
+        ft = FailureTracker(permanent_threshold=3)
+        ft.mark("openai.deepseek", FailureType.TEMPORARY)  # threshold=1, blocked
+        ft.mark("openai.deepseek", FailureType.PERMANENT)  # count=1, not blocked
+        assert ft.is_blocked("openai.deepseek")
+
+    def test_only_provider_not_blocked_on_temporary_error(self):
+        """Unique provider should still be used even if blocked."""
+        cfg = AppConfig(providers={
+            "openai": {
+                "deepseek": ProviderConfig(
+                    api_key="sk-test", base_url="https://test.com",
+                    models={"gpt-4o": {"level": "large"}},
+                ),
+            },
+        })
+        router = Router(cfg, available_providers={"openai.deepseek"})
+        router.failure_tracker.mark("openai.deepseek", FailureType.TEMPORARY)
+        # Even though blocked, should still return the only provider
+        provider, model = router.select("gpt-4o")
+        assert provider == "openai.deepseek"
 
 
 # ── InTimeRange (unchanged from original) ───────────────────────────────────
@@ -143,7 +180,7 @@ class TestRouterWeightedSelect:
     def test_failure_tracker_blocks_provider(self):
         cfg = self.make_config()
         router = Router(cfg, available_providers={"openai.deepseek", "anthropic.zhipu"})
-        router.failure_tracker.mark("anthropic.zhipu")
+        router.failure_tracker.mark("anthropic.zhipu", FailureType.TEMPORARY)
         provider, model = router.select("gpt-4o")
         # anthropic.zhipu is blocked, falls back to openai.deepseek
         assert provider == "openai.deepseek"

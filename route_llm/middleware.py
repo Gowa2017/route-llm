@@ -9,12 +9,13 @@ from route_llm.models import AppConfig, ChatCompletionRequest, ChatCompletionRes
 from route_llm.provider.anthropic import AnthropicProvider
 from route_llm.provider.base import BaseProvider
 from route_llm.provider.openai_compat import OpenAICompatProvider
-from route_llm.router import Router
+from route_llm.router import Router, FailureType
 from route_llm.tracker import UsageTracker
 
 _log = logging.getLogger("route_llm")
 
-_RETRYABLE_STATUSES = {429, 500, 502, 503}
+_TEMPORARY_STATUSES = {429, 503}  # Rate limit, service unavailable
+_PERMANENT_STATUSES = {500, 502}  # Internal error, bad gateway
 _MAX_RETRIES = 3
 
 _PLACEHOLDER_PREFIXES = ("sk-your-", "sk-ant-your-")
@@ -77,8 +78,9 @@ class RoutingService:
     async def _call_with_fallback(self, model_hint: str | None, call_fn):
         """Route then call, retrying fallback providers on HTTP 429/5xx.
 
-        Failed providers are added to the failure tracker so subsequent
-        requests skip them for the cooldown period (default 30 min).
+        Temporary failures (429/503) use short cooldown, permanent failures (500/502)
+        use long cooldown. Failed providers are tracked so subsequent requests
+        skip them during cooldown.
         """
         exclude: set[str] = set()
         last_error: Exception | None = None
@@ -97,14 +99,28 @@ class RoutingService:
                 return result
             except httpx.HTTPStatusError as e:
                 last_error = e
-                if e.response.status_code in _RETRYABLE_STATUSES:
-                    detail = e.response.text or str(e)
+                status = e.response.status_code
+                detail = e.response.text or str(e)
+
+                if status in _TEMPORARY_STATUSES:
                     _log.warning(
                         "Provider %s %s failed (HTTP %d): %s",
-                        provider_name, model, e.response.status_code, detail[:200],
+                        provider_name, model, status, detail[:200],
                     )
                     self._router.failure_tracker.mark(
-                        provider_name, f"HTTP {e.response.status_code}: {detail[:100]}"
+                        provider_name, FailureType.TEMPORARY,
+                        f"HTTP {status}: {detail[:100]}"
+                    )
+                    exclude.add(provider_name)
+                    continue
+                elif status in _PERMANENT_STATUSES:
+                    _log.warning(
+                        "Provider %s %s failed (HTTP %d): %s",
+                        provider_name, model, status, detail[:200],
+                    )
+                    self._router.failure_tracker.mark(
+                        provider_name, FailureType.PERMANENT,
+                        f"HTTP {status}: {detail[:100]}"
                     )
                     exclude.add(provider_name)
                     continue
