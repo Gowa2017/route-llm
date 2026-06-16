@@ -138,8 +138,14 @@ class Router:
         self.failure_tracker = FailureTracker()
 
     def select(self, model_hint: str | None = None,
-               exclude_providers: set[str] | None = None) -> tuple[str, str]:
-        """Return (provider_name, model_name) for the current context."""
+               exclude_providers: set[str] | None = None,
+               proto_filter: str | None = None) -> tuple[str, str]:
+        """Return (provider_name, model_name) for the current context.
+
+        Args:
+            proto_filter: If set, only consider providers of this protocol type
+                          (e.g. "openai" or "anthropic").
+        """
         exclude = exclude_providers or set()
         now = datetime.now().time()
 
@@ -153,7 +159,7 @@ class Router:
                         if not self.failure_tracker.is_blocked(key):
                             return key, explicit_model
 
-        candidates = self._find_candidates(model_hint, exclude)
+        candidates = self._find_candidates(model_hint, exclude, proto_filter)
         if not candidates:
             return "", model_hint or ""
 
@@ -197,6 +203,7 @@ class Router:
 
     def _find_candidates(
         self, model_hint: str | None, exclude: set[str],
+        proto_filter: str | None = None,
     ) -> list[tuple[str, ProviderConfig]]:
         """Return (provider_key, config) pairs that can serve *model_hint*."""
         candidates: list[tuple[str, ProviderConfig]] = []
@@ -205,6 +212,8 @@ class Router:
         total_providers_for_model = self._count_providers_for_model(model_hint)
 
         for proto_type, vendors in self.config.providers.items():
+            if proto_filter and proto_type != proto_filter:
+                continue
             for vendor_name, pconfig in vendors.items():
                 key = f"{proto_type}.{vendor_name}"
                 if key in exclude:

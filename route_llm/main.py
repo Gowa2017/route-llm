@@ -233,7 +233,8 @@ async def chat_completions(request: Request):
     try:
         # Streaming — 单次路由, 不支持重试 (已开始响应)
         if is_stream:
-            provider_name, model, provider = service.route(body.get("model"))
+            provider_name, model, provider = service.route(body.get("model"),
+                                                            proto_filter="openai")
             _log.info("routed → provider=%s model=%s (stream)", provider_name, model)
             request_obj = ChatCompletionRequest(**body)
             request_obj.model = model
@@ -271,7 +272,7 @@ async def chat_completions(request: Request):
             )
 
         # 非流式 → 带自动故障转移
-        resp = await service.chat_completion(body)
+        resp = await service.chat_completion(body, proto_filter="openai")
         return JSONResponse(content=resp.model_dump())
     except ValueError as e:
         _log.error("chat_completions ValueError: %s", e)
@@ -449,7 +450,8 @@ async def anthropic_messages(request: Request):
     try:
         # Streaming → 单次路由, 不支持重试 (已开始响应)
         if stream:
-            provider_name, model, provider = service.route(body.get("model"))
+            provider_name, model, provider = service.route(body.get("model"),
+                                                            proto_filter="anthropic")
             _log.info("routed → provider=%s model=%s", provider_name, model)
             body["model"] = model
 
@@ -492,7 +494,8 @@ async def anthropic_messages(request: Request):
         last_error: Exception | None = None
 
         for _attempt in range(3):
-            provider_name, model = service._router.select(body.get("model"), exclude)
+            provider_name, model = service._router.select(body.get("model"), exclude,
+                                                           proto_filter="anthropic")
             _log.info("routed → provider=%s model=%s", provider_name, model)
             provider = service._providers.get(provider_name)
             if not provider:

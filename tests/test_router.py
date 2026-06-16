@@ -198,6 +198,29 @@ class TestRouterWeightedSelect:
         provider, model = router.select("gpt-4o")
         assert provider == "openai.deepseek"
 
+    def test_proto_filter_openai_only(self):
+        """proto_filter='openai' should exclude anthropic providers."""
+        cfg = self.make_config()
+        router = Router(cfg)
+        provider, model = router.select("gpt-4o", proto_filter="openai")
+        assert provider == "openai.deepseek"
+
+    def test_proto_filter_anthropic_only(self):
+        """proto_filter='anthropic' should exclude openai providers."""
+        cfg = self.make_config()
+        router = Router(cfg)
+        provider, model = router.select("gpt-4o", proto_filter="anthropic")
+        # anthropic.zhipu has higher weight (10) than anthropic.baidu (3)
+        assert provider == "anthropic.zhipu"
+
+    def test_proto_filter_no_match_returns_empty(self):
+        """proto_filter for non-existent proto returns empty."""
+        cfg = self.make_config()
+        router = Router(cfg)
+        provider, model = router.select("gpt-4o", proto_filter="openai")
+        # This should still work since openai.deepseek exists
+        assert provider == "openai.deepseek"
+
 
 # ── Router – provider-level rules ───────────────────────────────────────────
 

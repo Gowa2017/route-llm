@@ -67,15 +67,17 @@ class RoutingService:
         cfg = self._config.providers.get(proto, {}).get(vendor)
         return list(cfg.models.keys()) if cfg and cfg.models else []
 
-    def route(self, model_hint: str | None = None) -> tuple[str, str, BaseProvider]:
+    def route(self, model_hint: str | None = None,
+              proto_filter: str | None = None) -> tuple[str, str, BaseProvider]:
         """Single-shot route (no retry)."""
-        provider_name, model = self._router.select(model_hint)
+        provider_name, model = self._router.select(model_hint, proto_filter=proto_filter)
         provider = self._providers.get(provider_name)
         if not provider:
             raise ValueError(f"Unknown provider: {provider_name}")
         return provider_name, model, provider
 
-    async def _call_with_fallback(self, model_hint: str | None, call_fn):
+    async def _call_with_fallback(self, model_hint: str | None, call_fn,
+                                   proto_filter: str | None = None):
         """Route then call, retrying fallback providers on HTTP 429/5xx.
 
         Temporary failures (429/503) use short cooldown, permanent failures (500/502)
@@ -86,7 +88,8 @@ class RoutingService:
         last_error: Exception | None = None
 
         for attempt in range(_MAX_RETRIES):
-            provider_name, model = self._router.select(model_hint, exclude)
+            provider_name, model = self._router.select(model_hint, exclude,
+                                                       proto_filter=proto_filter)
             provider = self._providers.get(provider_name)
             if not provider:
                 if last_error:
@@ -128,7 +131,8 @@ class RoutingService:
 
         raise last_error or RuntimeError("All providers exhausted")
 
-    async def chat_completion(self, body: dict) -> ChatCompletionResponse:
+    async def chat_completion(self, body: dict,
+                              proto_filter: str | None = None) -> ChatCompletionResponse:
         """Route a chat completion request and return the upstream response.
 
         Automatically retries with fallback providers on HTTP 429/5xx.
@@ -152,4 +156,5 @@ class RoutingService:
             )
             return resp
 
-        return await self._call_with_fallback(model_hint, _call)
+        return await self._call_with_fallback(model_hint, _call,
+                                               proto_filter=proto_filter)
