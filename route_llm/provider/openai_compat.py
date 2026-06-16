@@ -35,3 +35,12 @@ class OpenAICompatProvider(BaseProvider):
         resp.raise_for_status()
         data = resp.json()
         return ChatCompletionResponse(**data)
+
+    async def chat_completion_stream(self, request: ChatCompletionRequest):
+        """Forward request with stream=true, yield SSE byte chunks."""
+        body = request.model_dump(exclude_none=True)
+        body["stream"] = True
+        async with self._client.stream("POST", "/v1/chat/completions", json=body) as resp:
+            resp.raise_for_status()
+            async for chunk in resp.aiter_bytes():
+                yield chunk

@@ -11,7 +11,9 @@ from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
 from route_llm.config import load_config
 from route_llm.middleware import RoutingService
+from route_llm.models import ChatCompletionRequest
 from route_llm.provider.anthropic import AnthropicProvider
+from route_llm.provider.openai_compat import OpenAICompatProvider
 from route_llm.tracker import UsageTracker
 
 import os
@@ -226,7 +228,49 @@ async def chat_completions(request: Request):
         body.get("reasoning_effort"),
     )
     service: RoutingService = request.app.state.service
+    is_stream = body.get("stream", False)
+
     try:
+        # Streaming — 单次路由, 不支持重试 (已开始响应)
+        if is_stream:
+            provider_name, model, provider = service.route(body.get("model"))
+            _log.info("routed → provider=%s model=%s (stream)", provider_name, model)
+            request_obj = ChatCompletionRequest(**body)
+            request_obj.model = model
+
+            if isinstance(provider, OpenAICompatProvider):
+                stream = _track_openai_stream_usage(
+                    provider.chat_completion_stream(request_obj),
+                    service._tracker,
+                    provider_name,
+                    model,
+                )
+                try:
+                    first_chunk = await stream.__anext__()
+                except httpx.HTTPStatusError as e:
+                    detail = e.response.text or str(e)
+                    _log.error("chat_completions stream HTTPStatusError: %s", detail)
+                    raise HTTPException(
+                        status_code=e.response.status_code, detail=detail
+                    ) from e
+                except Exception as e:
+                    _log.error("chat_completions stream error: %s", e)
+                    raise HTTPException(status_code=502, detail=str(e)) from e
+
+                async def _wrapped():
+                    yield first_chunk
+                    async for chunk in stream:
+                        yield chunk
+
+                return StreamingResponse(
+                    _wrapped(), media_type="text/event-stream"
+                )
+            raise HTTPException(
+                status_code=501,
+                detail=f"OpenAI stream→{type(provider).__name__} not supported",
+            )
+
+        # 非流式 → 带自动故障转移
         resp = await service.chat_completion(body)
         return JSONResponse(content=resp.model_dump())
     except ValueError as e:
@@ -314,6 +358,68 @@ async def _track_stream_usage(stream, tracker, provider_name, model):
                 )
             except Exception as rec_err:
                 _log.error("_track_stream_usage record error", exc_info=True)
+
+
+async def _track_openai_stream_usage(stream, tracker, provider_name, model):
+    """Wrap OpenAI SSE stream, extract usage from events, record after stream ends."""
+    start = time.monotonic()
+    usage = {}
+    upstream_model = None
+    ttft_ms = None
+    buf = b""
+    try:
+        async for chunk in stream:
+            yield chunk
+            buf += chunk
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                line = line.strip()
+                if not line.startswith(b"data:"):
+                    continue
+                payload = line[5:].strip()
+                if payload == b"[DONE]":
+                    continue
+                try:
+                    data = json.loads(payload)
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    continue
+                if ttft_ms is None:
+                    ttft_ms = int((time.monotonic() - start) * 1000)
+                if not upstream_model and data.get("model"):
+                    upstream_model = data["model"]
+                u = data.get("usage")
+                if u:
+                    usage["input_tokens"] = u.get("prompt_tokens", 0)
+                    usage["output_tokens"] = u.get("completion_tokens", 0)
+                    usage["cache_read_input_tokens"] = u.get("prompt_tokens_details", {}).get("cached_tokens", 0)
+    except httpx.HTTPStatusError:
+        raise
+    except Exception as e:
+        _log.error("_track_openai_stream_usage error", exc_info=True)
+        yield f"data: {json.dumps({'error': {'message': str(e), 'type': 'server_error'}})}\n\n".encode()
+        return
+    finally:
+        duration_ms = int((time.monotonic() - start) * 1000)
+        if usage.get("input_tokens") is not None:
+            if upstream_model and upstream_model != model:
+                _log.info(
+                    "upstream: provider=%s requested=%s upstream_model=%s",
+                    provider_name, model, upstream_model,
+                )
+            try:
+                tracker.record(
+                    provider_name,
+                    model,
+                    usage.get("input_tokens", 0),
+                    usage.get("output_tokens", 0),
+                    usage.get("cache_read_input_tokens", 0),
+                    0,
+                    upstream_model=upstream_model,
+                    duration_ms=duration_ms,
+                    ttft_ms=ttft_ms,
+                )
+            except Exception:
+                _log.error("_track_openai_stream_usage record error", exc_info=True)
 
 
 @app.post("/v1/messages")
