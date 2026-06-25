@@ -41,6 +41,8 @@ class OpenAICompatProvider(BaseProvider):
         body = request.model_dump(exclude_none=True)
         body["stream"] = True
         async with self._client.stream("POST", "/v1/chat/completions", json=body) as resp:
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                await resp.aread()
+                resp.raise_for_status()
             async for chunk in resp.aiter_bytes():
                 yield chunk

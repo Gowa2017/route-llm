@@ -432,6 +432,9 @@ async def anthropic_messages(request: Request):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
 
+    # 提取客户端的 anthropic-beta header 用于转发
+    client_headers = {"anthropic-beta": request.headers.get("anthropic-beta", "")}
+
     _log.info(
         "anthropic_messages model=%s stream=%s max_tokens=%s "
         "thinking=%s reasoning_effort=%s context_management=%s output_config=%s",
@@ -457,7 +460,7 @@ async def anthropic_messages(request: Request):
 
             if isinstance(provider, AnthropicProvider):
                 stream = _track_stream_usage(
-                    provider.proxy_request_stream(body),
+                    provider.proxy_request_stream(body, client_headers),
                     service._tracker,
                     provider_name,
                     model,
@@ -510,7 +513,7 @@ async def anthropic_messages(request: Request):
 
             body["model"] = model
             try:
-                resp = await provider.proxy_request(body)
+                resp = await provider.proxy_request(body, client_headers)
                 service._router.failure_tracker.reset(provider_name)
             except httpx.HTTPStatusError as e:
                 last_error = e

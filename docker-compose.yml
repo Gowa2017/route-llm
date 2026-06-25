@@ -8,4 +8,5 @@ services:
       - ./data:/app/data
     environment:
       - TZ=Asia/Shanghai
+      - ROUTE_LLM_DEBUG_BODY=${ROUTE_LLM_DEBUG_BODY:-0}
     restart: unless-stopped

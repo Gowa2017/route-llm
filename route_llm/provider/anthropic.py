@@ -22,6 +22,17 @@ from route_llm.provider.base import BaseProvider
 _ANTHROPIC_VERSION = "2023-06-01"
 _DEFAULT_MAX_TOKENS = 4096
 
+# 基础 beta features（确保始终启用）
+_BASE_BETA_FEATURES = {
+    "claude-code-20250219",
+    "interleaved-thinking-2025-05-14",
+    "redact-thinking-2026-02-12",
+    "context-management-2025-06-27",
+    "prompt-caching-scope-2026-01-05",
+    "mid-conversation-system-2026-04-07",
+    "effort-2025-11-24",
+}
+
 
 async def _consume_sse(resp) -> dict:
     """Read SSE stream from an Anthropic response, aggregate into final JSON."""
@@ -166,22 +177,40 @@ class AnthropicProvider(BaseProvider):
             timeout=360,
         )
 
-    async def proxy_request(self, body: dict) -> dict:
+    def _build_headers(self, client_headers: dict[str, str] | None = None) -> dict[str, str]:
+        """构建请求 headers。
+
+        只转发 anthropic-beta（合并客户端的额外 features），其他标识不转发。
+        """
+        headers = {
+            "anthropic-version": _ANTHROPIC_VERSION,
+            "Content-Type": "application/json",
+        }
+        # 合并 beta features: 基础列表 + 客户端发来的
+        beta_features = set(_BASE_BETA_FEATURES)
+        if client_headers and "anthropic-beta" in client_headers:
+            beta_features.update(client_headers["anthropic-beta"].split(","))
+        headers["anthropic-beta"] = ",".join(sorted(beta_features))
+        return headers
+
+    async def proxy_request(self, body: dict, client_headers: dict[str, str] | None = None) -> dict:
         """Forward Anthropic-format request, return JSON dict.
 
         Handles both JSON and SSE responses — if upstream returns SSE,
         aggregates events into a single JSON dict internally.
         """
-        resp = await self._client.post("/v1/messages", json=body)
+        headers = self._build_headers(client_headers)
+        resp = await self._client.post("/v1/messages", json=body, headers=headers)
         resp.raise_for_status()
         ct = resp.headers.get("content-type", "")
         if "text/event-stream" in ct:
             return await _consume_sse(resp)
         return resp.json()
 
-    async def proxy_request_stream(self, body: dict):
+    async def proxy_request_stream(self, body: dict, client_headers: dict[str, str] | None = None):
         """Forward Anthropic-format request, yield SSE byte chunks."""
-        async with self._client.stream("POST", "/v1/messages", json=body) as resp:
+        headers = self._build_headers(client_headers)
+        async with self._client.stream("POST", "/v1/messages", json=body, headers=headers) as resp:
             try:
                 resp.raise_for_status()
             except httpx.HTTPStatusError as e:
