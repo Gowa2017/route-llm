@@ -102,8 +102,8 @@ class UsageTracker:
             agg[key]["calls"] += 1
             agg[key]["input_tokens"] += r["input_tokens"]
             agg[key]["output_tokens"] += r["output_tokens"]
-            agg[key]["cache_read_tokens"] += r.get("cache_read_tokens", 0)
-            agg[key]["cache_creation_tokens"] += r.get("cache_creation_tokens", 0)
+            agg[key]["cache_read_tokens"] += r.get("cache_read_tokens") or 0
+            agg[key]["cache_creation_tokens"] += r.get("cache_creation_tokens") or 0
             if "duration_ms" in r:
                 duration_ms = r["duration_ms"]
                 agg[key]["total_duration_ms"] += duration_ms
