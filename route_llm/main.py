@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from route_llm.config import load_config
 from route_llm.middleware import RoutingService
 from route_llm.models import ChatCompletionRequest
+from route_llm.pricing import BUCKET_OFFPEAK, BUCKET_PEAK, make_bucket_fn, prices_for
 from route_llm.provider.anthropic import AnthropicProvider
 from route_llm.provider.openai_compat import OpenAICompatProvider
 from route_llm.tracker import UsageTracker
@@ -102,17 +103,18 @@ def _calc_cost(usage_items: list[dict], config) -> list[dict]:
         mc = vendor_cfg.models.get(model_name)
         if not mc:
             continue
+        prices = prices_for(mc, item.get("bucket") == BUCKET_PEAK)
         has_price = False
         cost = {}
         m = 1_000_000
-        if mc.input_price is not None:
-            cost["input_cost"] = round(item["input_tokens"] / m * mc.input_price, 6)
+        if prices["input"] is not None:
+            cost["input_cost"] = round(item["input_tokens"] / m * prices["input"], 6)
             has_price = True
-        if mc.cache_read_price is not None:
-            cost["cache_read_cost"] = round(item["cache_read_tokens"] / m * mc.cache_read_price, 6)
+        if prices["cache_read"] is not None:
+            cost["cache_read_cost"] = round(item["cache_read_tokens"] / m * prices["cache_read"], 6)
             has_price = True
-        if mc.output_price is not None:
-            cost["output_cost"] = round(item["output_tokens"] / m * mc.output_price, 6)
+        if prices["output"] is not None:
+            cost["output_cost"] = round(item["output_tokens"] / m * prices["output"], 6)
             has_price = True
         if has_price:
             cost["total_cost"] = round(sum(cost.values()), 6)
@@ -133,21 +135,33 @@ def _pad(s: str, width: int) -> str:
 
 def _fmt_table(items: list[dict]) -> str:
     """Format usage data as box-drawing character table."""
-    headers = ["模型", "调用次数", "输入 tokens", "输出 tokens", "缓存读取", "费用(元)", "平均首字", "最大首字", "平均 tok/s", "峰值 tok/s"]
+    headers = ["模型", "调用次数", "输入 tokens", "输出 tokens", "缓存读取", "缓存率", "费用(元)", "平均首字", "最大首字", "平均 tok/s", "峰值 tok/s"]
     rows = []
     for item in items:
         cost = item.get("total_cost")
         cost_str = f"¥{cost:.3f}" if cost is not None else "—"
+        cache_read = item.get("cache_read_tokens", 0)
+        total_prompt = (
+            item["input_tokens"] + cache_read + item.get("cache_creation_tokens", 0)
+        )
+        hit_rate = (cache_read / total_prompt) if total_prompt else None
+        hit_rate_str = f"{hit_rate:.1%}" if hit_rate is not None else "—"
         avg_ttft = item.get("avg_ttft_ms")
         max_ttft = item.get("max_ttft_ms")
         avg_tps = item.get("avg_tokens_per_sec")
         peak_tps = item.get("peak_tokens_per_sec")
+        name = item["provider_model"]
+        if item.get("bucket") == BUCKET_PEAK:
+            name += " (高峰)"
+        elif item.get("bucket") == BUCKET_OFFPEAK:
+            name += " (非高峰)"
         rows.append([
-            item["provider_model"],
+            name,
             str(item["calls"]),
             f"{item['input_tokens']:,}",
             f"{item['output_tokens']:,}",
-            f"{item.get('cache_read_tokens', 0):,}",
+            f"{cache_read:,}",
+            hit_rate_str,
             cost_str,
             f"{avg_ttft:.0f}ms" if avg_ttft is not None else "—",
             f"{max_ttft:.0f}ms" if max_ttft is not None else "—",
@@ -179,10 +193,12 @@ def _fmt_table(items: list[dict]) -> str:
 async def _get_usage_data(request: Request, start_date, end_date, provider, model):
     await _check_auth(request)
     tracker: UsageTracker = request.app.state.tracker
+    config = request.app.state.config
     result = tracker.query(
-        start_date=start_date, end_date=end_date, provider=provider, model=model
+        start_date=start_date, end_date=end_date, provider=provider, model=model,
+        bucket_fn=make_bucket_fn(config),
     )
-    return _calc_cost(result, request.app.state.config)
+    return _calc_cost(result, config)
 
 
 @app.get("/v1/usage")

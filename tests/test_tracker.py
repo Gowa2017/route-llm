@@ -137,3 +137,60 @@ class TestUsageTracker:
 
         assert "avg_ttft_ms" not in sm1
         assert "max_ttft_ms" not in sm1
+
+
+class TestBucketing:
+    def _write(self, tmp_path, records):
+        """Append raw records (full control over timestamp) to today's file."""
+        import datetime
+
+        usage_dir = tmp_path / "usage"
+        usage_dir.mkdir(parents=True, exist_ok=True)
+        today = datetime.date.today().isoformat()
+        with open(usage_dir / f"{today}.jsonl", "a") as f:
+            for r in records:
+                f.write(json.dumps(r) + "\n")
+
+    def test_bucket_fn_splits_into_two_rows(self, tmp_path):
+        t = UsageTracker(data_dir=str(tmp_path))
+        self._write(tmp_path, [
+            {"provider": "p1", "model": "m1", "input_tokens": 10, "output_tokens": 1},
+            {"provider": "p1", "model": "m1", "input_tokens": 20, "output_tokens": 2},
+            {"provider": "p1", "model": "m1", "input_tokens": 40, "output_tokens": 4},
+        ])
+        buckets = {"p1/m1": ["peak", "peak", "offpeak"]}
+        rows = t.query(bucket_fn=lambda r: buckets[r["provider"] + "/" + r["model"]].pop(0))
+
+        assert [r["bucket"] for r in rows] == ["offpeak", "peak"]  # 非高峰在前
+        assert all(r["provider_model"] == "p1/m1" for r in rows)
+        assert rows[0]["calls"] == 1 and rows[0]["input_tokens"] == 40
+        assert rows[1]["calls"] == 2 and rows[1]["input_tokens"] == 30
+
+    def test_bucket_fn_returns_none_keeps_single_row(self, tmp_path):
+        t = UsageTracker(data_dir=str(tmp_path))
+        t.record("p1", "m1", 10, 1)
+        t.record("p1", "m1", 20, 2)
+
+        rows = t.query(bucket_fn=lambda r: None)
+        assert len(rows) == 1
+        assert "bucket" not in rows[0]
+        assert rows[0]["calls"] == 2
+
+    def test_unbucketed_model_beside_bucketed_one(self, tmp_path):
+        t = UsageTracker(data_dir=str(tmp_path))
+        self._write(tmp_path, [
+            {"provider": "p1", "model": "m1", "input_tokens": 10, "output_tokens": 1},
+            {"provider": "p1", "model": "m2", "input_tokens": 20, "output_tokens": 2},
+            {"provider": "p1", "model": "m2", "input_tokens": 30, "output_tokens": 3},
+        ])
+
+        def bucket_fn(r):
+            if r["model"] == "m1":
+                return "peak"
+            return None
+
+        rows = t.query(bucket_fn=bucket_fn)
+        assert [(r["provider_model"], r.get("bucket")) for r in rows] == [
+            ("p1/m1", "peak"),
+            ("p1/m2", None),
+        ]

@@ -88,10 +88,24 @@ max_tokens = 65536
 api_key = "YOUR_API_KEY"
 base_url = "https://open.bigmodel.cn/api/anthropic"
 weight = 10
+# 高峰窗口: 工作日 08:00-12:00/14:00-18:00, 周末全天 10:00-12:00, 以及跨午夜的周五晚
+peak_windows = [
+  { days = ["mon", "tue", "wed", "thu", "fri"], start = "08:00", end = "12:00" },
+  { days = ["mon", "tue", "wed", "thu", "fri"], start = "14:00", end = "18:00" },
+  { days = ["sat", "sun"], start = "10:00", end = "12:00" },
+  { days = ["fri"], start = "23:00", end = "02:00" },  # 跨午夜
+]
 
 [providers.anthropic.zhipu.models."glm-4.7"]
 level = "large"
 max_tokens = 131072
+input_price = 2.0            # 非高峰基准价 (每百万 token)
+cache_read_price = 0.4
+output_price = 8.0
+peak_input_price = 4.0       # 高峰价, 未配的字段回落基准价
+peak_cache_read_price = 0.8
+peak_output_price = 16.0
+# peak_windows = []          # 模型级覆盖厂商默认, [] = 该模型不分峰谷
 
 [providers.anthropic.zhipu.models."glm-5.1"]
 level = "large"

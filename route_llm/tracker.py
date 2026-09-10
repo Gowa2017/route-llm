@@ -3,10 +3,14 @@
 import json
 import logging
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 _log = logging.getLogger("route_llm")
+
+# 分桶行的展示顺序: 非高峰在前
+_BUCKET_RANK = {"peak": 1}
 
 
 class UsageTracker:
@@ -58,10 +62,15 @@ class UsageTracker:
         end_date: str | None = None,
         provider: str | None = None,
         model: str | None = None,
+        bucket_fn: Callable[[dict], str | None] | None = None,
     ) -> list[dict]:
         """Return aggregated usage over a date range, optionally filtered.
 
         Params default to today.  Provider/model filters do substring match.
+
+        *bucket_fn* optionally classifies each record into an extra bucket
+        (e.g. peak / offpeak pricing); records it returns None for stay
+        unbucketed and the output is unchanged.
         """
         today = date.today()
         start = date.fromisoformat(start_date) if start_date else today
@@ -98,7 +107,7 @@ class UsageTracker:
             }
         )
         for r in rows:
-            key = f"{r['provider']}/{r['model']}"
+            key = (f"{r['provider']}/{r['model']}", bucket_fn(r) if bucket_fn else None)
             agg[key]["calls"] += 1
             agg[key]["input_tokens"] += r["input_tokens"]
             agg[key]["output_tokens"] += r["output_tokens"]
@@ -114,8 +123,11 @@ class UsageTracker:
                 agg[key]["ttft_ms_samples"].append(r["ttft_ms"])
 
         results = []
-        for k, v in sorted(agg.items()):
+        ordered = sorted(agg.items(), key=lambda kv: (kv[0][0], _BUCKET_RANK.get(kv[0][1], 0)))
+        for (k, bucket), v in ordered:
             row = {"provider_model": k}
+            if bucket is not None:
+                row["bucket"] = bucket
             row["calls"] = v["calls"]
             row["input_tokens"] = v["input_tokens"]
             row["output_tokens"] = v["output_tokens"]
